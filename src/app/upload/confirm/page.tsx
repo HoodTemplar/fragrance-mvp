@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { createClient } from "@/lib/supabase/client";
+import { uploadCollectionPhoto } from "@/lib/storage";
 import { createCollectionUpload } from "@/lib/collectionUploads";
 import { generateCollectionAnalysis } from "@/app/actions/analyze";
 import { trackEvent } from "@/lib/events";
@@ -18,7 +19,6 @@ import type { DetectionItem } from "@/lib/ai/types";
 
 const STORAGE_DETECTIONS = "scent-dna-upload-detections";
 const STORAGE_IMAGE = "scent-dna-upload-image";
-const STORAGE_PATH = "scent-dna-upload-storage-path";
 const STORAGE_MIME = "scent-dna-upload-mime";
 const STORAGE_GENDER_PREF = "scent-dna-upload-gender-preference";
 const RESULT_KEY = "scent-dna-collection-result";
@@ -34,7 +34,7 @@ export default function UploadConfirmPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [detections, setDetections] = useState<DetectionItem[]>([]);
-  const [storagePath, setStoragePath] = useState<string | null>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState<string>("image/jpeg");
   const [genderPreference, setGenderPreference] = useState<string>("open");
   const [loading, setLoading] = useState(false);
@@ -43,11 +43,11 @@ export default function UploadConfirmPage() {
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(STORAGE_DETECTIONS);
-      const path = sessionStorage.getItem(STORAGE_PATH);
+      const img = sessionStorage.getItem(STORAGE_IMAGE);
       const mime = sessionStorage.getItem(STORAGE_MIME);
       const pref = sessionStorage.getItem(STORAGE_GENDER_PREF);
       if (raw) setDetections(JSON.parse(raw));
-      if (path) setStoragePath(path);
+      if (img) setImageBase64(img);
       if (mime) setMimeType(mime);
       if (pref && ["open", "masculine", "feminine", "unisex"].includes(pref)) setGenderPreference(pref);
     } catch {
@@ -74,15 +74,17 @@ export default function UploadConfirmPage() {
       sessionStorage.setItem(RESULT_KEY, JSON.stringify(result));
       sessionStorage.removeItem(STORAGE_DETECTIONS);
       sessionStorage.removeItem(STORAGE_IMAGE);
-      sessionStorage.removeItem(STORAGE_PATH);
       sessionStorage.removeItem(STORAGE_MIME);
       sessionStorage.removeItem(STORAGE_GENDER_PREF);
 
-      // Photo was already uploaded on the upload page; create the record with the stored path.
-      if (user && storagePath) {
-        console.log("[upload flow] Confirm page: saving upload record with stored path");
+      // Upload stored base64 image to storage and create record.
+      if (user && imageBase64) {
+        console.log("[upload flow] Confirm page: uploading photo to storage and saving record");
         const supabase = createClient();
-        const uploadRecord = await createCollectionUpload(supabase, storagePath);
+        const blob = await (await fetch(`data:${mimeType};base64,${imageBase64}`)).blob();
+        const file = new File([blob], "collection.jpg", { type: mimeType });
+        const path = await uploadCollectionPhoto(supabase, file);
+        const uploadRecord = await createCollectionUpload(supabase, path);
         trackEvent("image_uploaded", { uploadId: uploadRecord.id });
       }
 

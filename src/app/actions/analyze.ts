@@ -27,53 +27,22 @@ type AnalyzeImageResult = {
 };
 
 /**
- * Fetch an image from a URL and return its base64 and mime type.
- * Used when the client sends a storage URL so we never pass remote URLs to OpenAI.
- */
-async function fetchImageAsBase64(
-  imageUrl: string
-): Promise<{ base64: string; mimeType: string }> {
-  const res = await fetch(imageUrl);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch image: ${res.status} ${res.statusText}`);
-  }
-  const arrayBuffer = await res.arrayBuffer();
-  const base64 = Buffer.from(arrayBuffer).toString("base64");
-  const contentType = res.headers.get("content-type") || "";
-  const mimeType = contentType.includes("png")
-    ? "image/png"
-    : contentType.includes("webp")
-      ? "image/webp"
-      : "image/jpeg";
-  return { base64, mimeType };
-}
-
-/**
  * Run AI vision on the uploaded image. Returns detections and whether we need user confirmation.
  * On OpenAI failure or missing API key, returns a safe result with error set instead of throwing.
- * When imageUrl is provided, we fetch the image on the server and send base64 to OpenAI (OpenAI cannot access remote URLs).
+ * Only accepts base64 image data from the client; no image URLs. Sends base64 directly to OpenAI.
  */
 export async function analyzeCollectionImage(
-  imageBase64?: string,
-  mimeType: string = "image/jpeg",
-  imageUrl?: string
+  imageBase64: string,
+  mimeType: string = "image/jpeg"
 ): Promise<AnalyzeImageResult> {
-  console.log("[upload flow] Server action: analyzeCollectionImage — called", imageUrl ? "(fetch URL then base64)" : "(via base64)");
+  console.log("[upload flow] Server action: analyzeCollectionImage — called (base64 only)");
   try {
-    let base64 = (imageBase64 ?? "").replace(/^data:image\/\w+;base64,/, "");
-    let resolvedMimeType = mimeType;
-
-    if (imageUrl?.trim()) {
-      const fetched = await fetchImageAsBase64(imageUrl.trim());
-      base64 = fetched.base64;
-      resolvedMimeType = fetched.mimeType;
-    }
-
+    const base64 = (imageBase64 ?? "").replace(/^data:image\/\w+;base64,/, "");
     if (!base64) {
       return { detections: [], needsConfirmation: false, error: AI_UNAVAILABLE_MESSAGE };
     }
 
-    const raw = await detectFragrancesFromImage(base64, resolvedMimeType);
+    const raw = await detectFragrancesFromImage(base64, mimeType);
     if (!raw || !Array.isArray(raw.detections)) {
       return { detections: [], needsConfirmation: false, error: AI_UNAVAILABLE_MESSAGE };
     }

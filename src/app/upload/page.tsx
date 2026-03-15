@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { createClient } from "@/lib/supabase/client";
-import { uploadCollectionPhoto, BUCKET_COLLECTION_PHOTOS } from "@/lib/storage";
+import { uploadCollectionPhoto } from "@/lib/storage";
 import { createCollectionUpload } from "@/lib/collectionUploads";
 import { analyzeCollectionImage, generateCollectionAnalysis } from "@/app/actions/analyze";
 import { trackEvent } from "@/lib/events";
@@ -15,8 +15,21 @@ const STORAGE_DETECTIONS = "scent-dna-upload-detections";
 const STORAGE_IMAGE = "scent-dna-upload-image";
 const STORAGE_MIME = "scent-dna-upload-mime";
 const STORAGE_GENDER_PREF = "scent-dna-upload-gender-preference";
-const STORAGE_PATH = "scent-dna-upload-storage-path";
 const RESULT_KEY = "scent-dna-collection-result";
+
+function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.split(",")[1];
+      if (!base64) reject(new Error("Failed to read file"));
+      else resolve({ base64, mimeType: file.type || "image/jpeg" });
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 /** Max file size for upload (10MB). Larger files go via Supabase URL to avoid 413. */
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -58,14 +71,11 @@ export default function UploadPage() {
     const supabase = createClient();
 
     try {
-      // Step 1: Upload to Supabase first so we only send a URL to the Server Action (avoids 413 Payload Too Large on Vercel).
-      const path = await uploadCollectionPhoto(supabase, file);
-      console.log("[upload flow] Client: Step 1 (storage upload) — done, path:", path);
-      const { data: urlData } = supabase.storage.from(BUCKET_COLLECTION_PHOTOS).getPublicUrl(path);
-      const imageUrl = urlData.publicUrl;
+      // Step 1: Read image as base64 and send to Server Action (server sends base64 to OpenAI, no URLs).
+      const { base64, mimeType } = await fileToBase64(file);
+      console.log("[upload flow] Client: Step 1 (base64) — sending image data to server");
 
-      // Step 2: OpenAI detection via URL (small request body)
-      const analysisResult = await analyzeCollectionImage(undefined, "image/jpeg", imageUrl);
+      const analysisResult = await analyzeCollectionImage(base64, mimeType);
       if (analysisResult?.error || !analysisResult) {
         setError(analysisResult?.error ?? AI_UNAVAILABLE_MESSAGE);
         setLoading(false);
@@ -73,19 +83,22 @@ export default function UploadPage() {
       }
       const detections = Array.isArray(analysisResult.detections) ? analysisResult.detections : [];
       const needsConfirmation = Boolean(analysisResult.needsConfirmation);
-      console.log("[upload flow] Client: Step 2 (OpenAI detection) — done, detections:", detections.length, "needsConfirmation:", needsConfirmation);
+      console.log("[upload flow] Client: Step 1 (OpenAI detection) — done, detections:", detections.length, "needsConfirmation:", needsConfirmation);
 
       if (needsConfirmation && detections.length > 0) {
         sessionStorage.setItem(STORAGE_DETECTIONS, JSON.stringify(detections));
-        sessionStorage.setItem(STORAGE_PATH, path);
-        sessionStorage.setItem(STORAGE_IMAGE, imageUrl);
-        sessionStorage.setItem(STORAGE_MIME, file.type || "image/jpeg");
+        sessionStorage.setItem(STORAGE_IMAGE, base64);
+        sessionStorage.setItem(STORAGE_MIME, mimeType);
         sessionStorage.setItem(STORAGE_GENDER_PREF, genderPreference);
         console.log("[upload flow] Client: redirecting to confirmation page");
         router.push("/upload/confirm");
         setLoading(false);
         return;
       }
+
+      // Step 2: storage upload
+      const path = await uploadCollectionPhoto(supabase, file);
+      console.log("[upload flow] Client: Step 2 (storage upload) — done, path:", path);
 
       // Step 3: collection_uploads insert
       const uploadRecord = await createCollectionUpload(supabase, path);
