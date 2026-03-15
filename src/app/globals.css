@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --cream: #F5F0E8;
+  --charcoal: #1A1917;
+  --gold: #C9A962;
+}
+
+body {
+  @apply bg-cream text-charcoal antialiased;
+}
+
+html {
+  scroll-behavior: smooth;
+}

@@ -1,0 +1,55 @@
+/**
+ * Shared types for Scent DNA.
+ * These describe the shape of data we use across the app (results, quiz, profile).
+ */
+
+export interface ScentProfile {
+  dominant: string;
+  secondary: string;
+  accent: string;
+  description: string;
+}
+
+import type { ScoreBreakdown } from "@/lib/scoring";
+
+export interface CollectionResult {
+  score: number;
+  scoreBreakdown?: ScoreBreakdown;
+  scentProfile: ScentProfile;
+  strengths: string[];
+  weaknesses: string[];
+  missingCategories: string[];
+  recommendedFragrances: RecommendedFragrance[];
+  layeringSuggestions: string[];
+  whenToWear: string[];
+}
+
+export interface RecommendedFragrance {
+  id: string;
+  name: string;
+  brand: string;
+  category: string;
+  note: string;
+  /** When true, show "Sponsored" badge and track clicks for future monetization */
+  isSponsored?: boolean;
+  /** Optional. When set, clicks are attributed to this sponsor slot (for billing/analytics). */
+  sponsorSlotId?: string;
+}
+
+export interface QuizAnswer {
+  questionId: string;
+  value: string | number;
+}
+
+export interface QuizResult {
+  profile: ScentProfile;
+  recommendations: RecommendedFragrance[];
+}
+
+export interface SavedResult {
+  id: string;
+  userId: string;
+  type: "collection" | "quiz";
+  data: CollectionResult | QuizResult;
+  createdAt: string;
+}
