@@ -8,8 +8,12 @@ import { uploadCollectionPhoto } from "@/lib/storage";
 import { createCollectionUpload } from "@/lib/collectionUploads";
 import { analyzeCollectionImage, generateCollectionAnalysis } from "@/app/actions/analyze";
 import { trackEvent } from "@/lib/events";
+import { compressImage } from "@/lib/imageCompression";
 
 const AI_UNAVAILABLE_MESSAGE = "AI analysis temporarily unavailable. Please try again.";
+const NOT_AN_IMAGE_MESSAGE = "Please choose an image file (e.g. JPEG, PNG, or WebP).";
+const COMPRESSION_FAILED_MESSAGE = "This file couldn't be processed as an image. Please try a different photo (JPEG, PNG, or WebP).";
+const STILL_TOO_LARGE_MESSAGE = "Image is still too large after compression. Try a smaller or less detailed photo.";
 
 const STORAGE_DETECTIONS = "scent-dna-upload-detections";
 const STORAGE_IMAGE = "scent-dna-upload-image";
@@ -17,22 +21,21 @@ const STORAGE_MIME = "scent-dna-upload-mime";
 const STORAGE_GENDER_PREF = "scent-dna-upload-gender-preference";
 const RESULT_KEY = "scent-dna-collection-result";
 
-function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const base64 = dataUrl.split(",")[1];
-      if (!base64) reject(new Error("Failed to read file"));
-      else resolve({ base64, mimeType: file.type || "image/jpeg" });
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+/** Allowed image MIME types for upload. */
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+
+function isImageFile(file: File): boolean {
+  const type = (file.type || "").toLowerCase();
+  if (ALLOWED_IMAGE_TYPES.includes(type)) return true;
+  const name = (file.name || "").toLowerCase();
+  return ALLOWED_EXTENSIONS.some((ext) => name.endsWith(ext));
 }
 
-/** Max file size for upload (10MB). Larger files go via Supabase URL to avoid 413. */
+/** Max file size before compression (10MB). */
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+/** Reject only if still over this after compression (keeps under typical server limits). */
+const MAX_SIZE_AFTER_COMPRESSION_BYTES = 4.5 * 1024 * 1024;
 
 const GENDER_OPTIONS = [
   { value: "open", label: "Open — any" },
@@ -52,6 +55,11 @@ export default function UploadPage() {
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const chosen = e.target.files?.[0];
     if (chosen) {
+      if (!isImageFile(chosen)) {
+        setError(NOT_AN_IMAGE_MESSAGE);
+        setFile(null);
+        return;
+      }
       if (chosen.size > MAX_FILE_SIZE_BYTES) {
         setError(`Image must be 10MB or smaller. This file is ${(chosen.size / 1024 / 1024).toFixed(1)}MB.`);
         setFile(null);
@@ -65,15 +73,35 @@ export default function UploadPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!file || !user) return;
+    if (!isImageFile(file)) {
+      setError(NOT_AN_IMAGE_MESSAGE);
+      return;
+    }
     setLoading(true);
     setError(null);
 
     const supabase = createClient();
 
     try {
-      // Step 1: Read image as base64 and send to Server Action (server sends base64 to OpenAI, no URLs).
-      const { base64, mimeType } = await fileToBase64(file);
-      console.log("[upload flow] Client: Step 1 (base64) — sending image data to server");
+      // Step 1: Compress and resize on the client (longest side 1024px, JPEG ~72%).
+      // The server action receives only this compressed payload, not the original file.
+      let compressed;
+      try {
+        compressed = await compressImage(file);
+      } catch {
+        setError(COMPRESSION_FAILED_MESSAGE);
+        setLoading(false);
+        return;
+      }
+
+      if (compressed.blob.size > MAX_SIZE_AFTER_COMPRESSION_BYTES) {
+        setError(STILL_TOO_LARGE_MESSAGE);
+        setLoading(false);
+        return;
+      }
+
+      const { base64, mimeType } = compressed;
+      console.log("[upload flow] Client: Step 1 (compressed) — sending image data to server");
 
       const analysisResult = await analyzeCollectionImage(base64, mimeType);
       if (analysisResult?.error || !analysisResult) {
@@ -96,8 +124,9 @@ export default function UploadPage() {
         return;
       }
 
-      // Step 2: storage upload
-      const path = await uploadCollectionPhoto(supabase, file);
+      // Step 2: storage upload (use compressed image)
+      const compressedFile = new File([compressed.blob], (file.name.replace(/\.[^.]+$/, "") || "photo") + ".jpg", { type: "image/jpeg" });
+      const path = await uploadCollectionPhoto(supabase, compressedFile);
       console.log("[upload flow] Client: Step 2 (storage upload) — done, path:", path);
 
       // Step 3: collection_uploads insert
@@ -122,7 +151,7 @@ export default function UploadPage() {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       console.error("[upload flow] Client: failure —", message);
-      setError(message);
+      setError(message || "Something went wrong. Please try another image or try again.");
     } finally {
       setLoading(false);
     }
@@ -171,15 +200,19 @@ export default function UploadPage() {
               <p className="font-medium text-red-800 mb-1">Error</p>
               <p className="text-red-700 mb-2">{error}</p>
               <p className="text-red-600 text-xs">
-                {error.includes("OPENAI_API_KEY") || error.includes("OpenAI detection")
-                  ? "Step that failed: 1 — AI detection (reading bottles from photo)."
-                  : error.includes("Storage upload")
-                    ? "Step that failed: 2 — Saving photo to storage."
-                    : error.includes("collection_uploads")
-                      ? "Step that failed: 3 — Saving upload record to database."
-                      : error.includes("OpenAI analysis")
-                        ? "Step that failed: 4 — Generating analysis text."
-                        : "Check the browser console (F12 → Console) for the full log."}
+                {error === NOT_AN_IMAGE_MESSAGE
+                  ? "Only image files (JPEG, PNG, WebP, GIF) are supported."
+                  : error === COMPRESSION_FAILED_MESSAGE || error === STILL_TOO_LARGE_MESSAGE
+                  ? "Try a different photo or a smaller file."
+                  : error.includes("OPENAI_API_KEY") || error.includes("OpenAI detection")
+                    ? "Step that failed: 1 — AI detection (reading bottles from photo)."
+                    : error.includes("Storage upload")
+                      ? "Step that failed: 2 — Saving photo to storage."
+                      : error.includes("collection_uploads")
+                        ? "Step that failed: 3 — Saving upload record to database."
+                        : error.includes("OpenAI analysis")
+                          ? "Step that failed: 4 — Generating analysis text."
+                          : "Check the browser console (F12 → Console) for the full log."}
               </p>
             </div>
           )}
