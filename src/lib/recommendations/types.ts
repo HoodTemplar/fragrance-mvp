@@ -25,6 +25,8 @@ export interface RecommendationInput {
   userProjection?: string;
   /** Preferred price tiers (optional; when set, matching fragrances get a score boost). */
   userPreferredPriceTiers?: string[];
+  /** Optional fragrance catalog (e.g. from Supabase). If omitted, engine uses local fragranceCatalog.ts. */
+  catalog?: CatalogFragrance[];
 }
 
 /** One fragrance pick from the engine (before AI polish adds the note) */

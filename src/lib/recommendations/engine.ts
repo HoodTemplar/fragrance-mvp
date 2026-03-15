@@ -175,7 +175,8 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     ? (inputPriceTiers as PriceTier[])
     : (BUDGET_PRICE_TIERS[budgetFromQuiz] ?? BUDGET_PRICE_TIERS.mid);
 
-  const candidates = FRAGRANCE_CATALOG.filter((f) => !alreadyOwned(detectedFragrances, f));
+  const catalog = input.catalog ?? FRAGRANCE_CATALOG;
+  const candidates = catalog.filter((f) => !alreadyOwned(detectedFragrances, f));
 
   const score = (f: CatalogFragrance): number => {
     let s = 0;

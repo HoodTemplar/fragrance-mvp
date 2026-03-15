@@ -14,6 +14,7 @@ import type { CollectionResult } from "@/types";
 import { getCollectionResult } from "@/lib/mockData";
 import { computeCollectionScore } from "@/lib/scoring";
 import type { CollectionItemForScoring } from "@/lib/scoring";
+import { getFragranceCatalogFromSupabase } from "@/lib/fragrancesFromSupabase";
 import { runRecommendationEngine } from "@/lib/recommendations/engine";
 import { polishRecommendationCopy, buildPolishedFromRaw } from "@/lib/recommendations/polish";
 
@@ -127,6 +128,12 @@ export async function generateCollectionAnalysis(
   const missingCategories = analysis.missingCategories.length > 0 ? analysis.missingCategories : FALLBACK_ANALYSIS.missingCategories;
 
   const genderPreference = (quizAnswers?.genderPreference ?? quizAnswers?.q11 ?? "open") as "masculine" | "feminine" | "unisex" | "open";
+  const catalog = await getFragranceCatalogFromSupabase();
+  if (catalog && catalog.length > 0) {
+    console.log("[recommendations] Loaded", catalog.length, "fragrances from Supabase.");
+  } else {
+    console.log("[recommendations] Using fallback catalog (fragranceCatalog.ts).");
+  }
   const engineOutput = runRecommendationEngine({
     detectedFragrances: safeDetections.map((d) => ({ name: d.name, brand: d.brand })),
     missingCategories,
@@ -134,6 +141,7 @@ export async function generateCollectionAnalysis(
     weaknesses,
     quizAnswers,
     genderPreference,
+    catalog: catalog && catalog.length > 0 ? catalog : undefined,
   });
   const polished = await polishRecommendationCopy(engineOutput);
   const recs = polished ?? buildPolishedFromRaw(engineOutput);
@@ -167,6 +175,12 @@ function inferCategory(name: string, brand: string): string {
 export async function getRecommendationsForQuiz(
   quizAnswers: Record<string, string>
 ): Promise<{ recommendedFragrances: CollectionResult["recommendedFragrances"]; layeringSuggestions: string[]; whenToWear: string[] }> {
+  const catalog = await getFragranceCatalogFromSupabase();
+  if (catalog && catalog.length > 0) {
+    console.log("[recommendations] Loaded", catalog.length, "fragrances from Supabase.");
+  } else {
+    console.log("[recommendations] Using fallback catalog (fragranceCatalog.ts).");
+  }
   const engineOutput = runRecommendationEngine({
     detectedFragrances: [],
     missingCategories: ["Fresh", "Woody", "Floral", "Amber", "Oriental"],
@@ -174,6 +188,7 @@ export async function getRecommendationsForQuiz(
     weaknesses: [],
     quizAnswers,
     genderPreference: (quizAnswers.q11 ?? "open") as "masculine" | "feminine" | "unisex" | "open",
+    catalog: catalog && catalog.length > 0 ? catalog : undefined,
   });
   const polished = await polishRecommendationCopy(engineOutput);
   const recs = polished ?? buildPolishedFromRaw(engineOutput);
