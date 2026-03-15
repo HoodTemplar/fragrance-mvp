@@ -181,7 +181,9 @@ function RecommendationsContent() {
       )}
 
       <div className="flex gap-4 mt-10 pt-6">
-      {saveData && <SaveResultButton type={saveType} data={saveData} />}
+        {saveData && (
+          <SaveResultButton type={saveType} data={saveData} />
+        )}
         <Link href="/" className="px-5 py-2.5 border border-charcoal/20 text-charcoal text-sm hover:bg-charcoal/5 transition-colors">Home</Link>
       </div>
     </div>
