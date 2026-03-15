@@ -30,8 +30,8 @@ function LoginForm() {
         setLoading(false);
         return;
       }
-      router.push(next);
       router.refresh();
+      router.push(next);
     } catch (e: unknown) {
       setError(
         e instanceof Error ? e.message : "Something went wrong. Please try again."
