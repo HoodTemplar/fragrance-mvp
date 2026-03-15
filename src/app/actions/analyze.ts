@@ -29,17 +29,20 @@ type AnalyzeImageResult = {
 /**
  * Run AI vision on the uploaded image. Returns detections and whether we need user confirmation.
  * On OpenAI failure or missing API key, returns a safe result with error set instead of throwing.
+ * Pass imageUrl (e.g. Supabase public URL) to avoid sending the image in the request body (supports >4.5MB on Vercel).
  */
 export async function analyzeCollectionImage(
-  imageBase64: string,
-  mimeType: string = "image/jpeg"
+  imageBase64?: string,
+  mimeType: string = "image/jpeg",
+  imageUrl?: string
 ): Promise<AnalyzeImageResult> {
-  console.log("[upload flow] Server action: analyzeCollectionImage — called");
+  console.log("[upload flow] Server action: analyzeCollectionImage — called", imageUrl ? "(via URL)" : "(via base64)");
   try {
-    const raw = await detectFragrancesFromImage(
-      imageBase64.replace(/^data:image\/\w+;base64,/, ""),
-      mimeType
-    );
+    const base64 = (imageBase64 ?? "").replace(/^data:image\/\w+;base64,/, "");
+    if (!imageUrl && !base64) {
+      return { detections: [], needsConfirmation: false, error: AI_UNAVAILABLE_MESSAGE };
+    }
+    const raw = await detectFragrancesFromImage(base64, mimeType, imageUrl || undefined);
     if (!raw || !Array.isArray(raw.detections)) {
       return { detections: [], needsConfirmation: false, error: AI_UNAVAILABLE_MESSAGE };
     }

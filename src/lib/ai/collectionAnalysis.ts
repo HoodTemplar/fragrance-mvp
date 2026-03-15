@@ -20,14 +20,21 @@ function getOpenAI(): OpenAI {
 /**
  * Send image to AI and get back likely fragrance names and brands as JSON.
  * If uncertain (any confidence below threshold), needsConfirmation is true.
+ * Pass imageUrl (public URL) to avoid sending the image in the request body (avoids 413 on Vercel).
  */
 export async function detectFragrancesFromImage(
   imageBase64: string,
-  mimeType: string = "image/jpeg"
+  mimeType: string = "image/jpeg",
+  imageUrl?: string
 ): Promise<DetectFragrancesResult> {
   const openai = getOpenAI();
-  console.log("[upload flow] Step 1: OpenAI detection call — starting (model: gpt-4o)");
+  const useUrl = Boolean(imageUrl?.trim());
+  console.log("[upload flow] Step 1: OpenAI detection call — starting (model: gpt-4o)", useUrl ? "(via URL)" : "(via base64)");
   try {
+    const imagePayload = useUrl
+      ? { type: "image_url" as const, image_url: { url: imageUrl!.trim() } }
+      : { type: "image_url" as const, image_url: { url: `data:${mimeType};base64,${imageBase64}` } };
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       max_tokens: 1024,
@@ -51,10 +58,7 @@ Rules:
 - If you cannot read a bottle, omit it or use confidence 0.3.
 - Return only valid JSON.`,
             },
-            {
-              type: "image_url",
-              image_url: { url: `data:${mimeType};base64,${imageBase64}` },
-            },
+            imagePayload,
           ],
         },
       ],

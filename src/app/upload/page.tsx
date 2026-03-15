@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { createClient } from "@/lib/supabase/client";
-import { uploadCollectionPhoto } from "@/lib/storage";
+import { uploadCollectionPhoto, BUCKET_COLLECTION_PHOTOS } from "@/lib/storage";
 import { createCollectionUpload } from "@/lib/collectionUploads";
 import { analyzeCollectionImage, generateCollectionAnalysis } from "@/app/actions/analyze";
 import { trackEvent } from "@/lib/events";
@@ -15,7 +15,11 @@ const STORAGE_DETECTIONS = "scent-dna-upload-detections";
 const STORAGE_IMAGE = "scent-dna-upload-image";
 const STORAGE_MIME = "scent-dna-upload-mime";
 const STORAGE_GENDER_PREF = "scent-dna-upload-gender-preference";
+const STORAGE_PATH = "scent-dna-upload-storage-path";
 const RESULT_KEY = "scent-dna-collection-result";
+
+/** Max file size for upload (10MB). Larger files go via Supabase URL to avoid 413. */
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 const GENDER_OPTIONS = [
   { value: "open", label: "Open — any" },
@@ -23,20 +27,6 @@ const GENDER_OPTIONS = [
   { value: "feminine", label: "Feminine" },
   { value: "unisex", label: "Unisex" },
 ] as const;
-
-function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const base64 = dataUrl.split(",")[1];
-      if (!base64) reject(new Error("Failed to read file"));
-      else resolve({ base64, mimeType: file.type || "image/jpeg" });
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
 
 export default function UploadPage() {
   const router = useRouter();
@@ -48,8 +38,15 @@ export default function UploadPage() {
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const chosen = e.target.files?.[0];
-    if (chosen) setFile(chosen);
-    setError(null);
+    if (chosen) {
+      if (chosen.size > MAX_FILE_SIZE_BYTES) {
+        setError(`Image must be 10MB or smaller. This file is ${(chosen.size / 1024 / 1024).toFixed(1)}MB.`);
+        setFile(null);
+      } else {
+        setFile(chosen);
+        setError(null);
+      }
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -58,12 +55,17 @@ export default function UploadPage() {
     setLoading(true);
     setError(null);
 
-    try {
-      const { base64, mimeType } = await fileToBase64(file);
-      console.log("[upload flow] Client: file read as base64, length:", base64.length);
+    const supabase = createClient();
 
-      // Step 1: OpenAI detection (do not destructure until we know result is valid)
-      const analysisResult = await analyzeCollectionImage(base64, mimeType);
+    try {
+      // Step 1: Upload to Supabase first so we only send a URL to the Server Action (avoids 413 Payload Too Large on Vercel).
+      const path = await uploadCollectionPhoto(supabase, file);
+      console.log("[upload flow] Client: Step 1 (storage upload) — done, path:", path);
+      const { data: urlData } = supabase.storage.from(BUCKET_COLLECTION_PHOTOS).getPublicUrl(path);
+      const imageUrl = urlData.publicUrl;
+
+      // Step 2: OpenAI detection via URL (small request body)
+      const analysisResult = await analyzeCollectionImage(undefined, "image/jpeg", imageUrl);
       if (analysisResult?.error || !analysisResult) {
         setError(analysisResult?.error ?? AI_UNAVAILABLE_MESSAGE);
         setLoading(false);
@@ -71,24 +73,19 @@ export default function UploadPage() {
       }
       const detections = Array.isArray(analysisResult.detections) ? analysisResult.detections : [];
       const needsConfirmation = Boolean(analysisResult.needsConfirmation);
-      console.log("[upload flow] Client: Step 1 (OpenAI detection) — done, detections:", detections.length, "needsConfirmation:", needsConfirmation);
+      console.log("[upload flow] Client: Step 2 (OpenAI detection) — done, detections:", detections.length, "needsConfirmation:", needsConfirmation);
 
       if (needsConfirmation && detections.length > 0) {
         sessionStorage.setItem(STORAGE_DETECTIONS, JSON.stringify(detections));
-        sessionStorage.setItem(STORAGE_IMAGE, base64);
-        sessionStorage.setItem(STORAGE_MIME, mimeType);
+        sessionStorage.setItem(STORAGE_PATH, path);
+        sessionStorage.setItem(STORAGE_IMAGE, imageUrl);
+        sessionStorage.setItem(STORAGE_MIME, file.type || "image/jpeg");
         sessionStorage.setItem(STORAGE_GENDER_PREF, genderPreference);
         console.log("[upload flow] Client: redirecting to confirmation page");
         router.push("/upload/confirm");
         setLoading(false);
         return;
       }
-
-      const supabase = createClient();
-
-      // Step 2: storage upload
-      const path = await uploadCollectionPhoto(supabase, file);
-      console.log("[upload flow] Client: Step 2 (storage upload) — done, path:", path);
 
       // Step 3: collection_uploads insert
       const uploadRecord = await createCollectionUpload(supabase, path);
@@ -123,7 +120,7 @@ export default function UploadPage() {
       <p className="text-charcoal/50 text-sm tracking-wide uppercase mb-2">Upload</p>
       <h1 className="font-serif text-3xl text-charcoal mb-4">Your collection</h1>
       <p className="text-charcoal/60 text-sm leading-relaxed mb-10">
-        Add a photo of your fragrance bottles. We’ll analyze your collection and show your score and recommendations.
+        Add a photo of your fragrance bottles (up to 10MB). We’ll analyze your collection and show your score and recommendations.
         {!user && " Sign in to upload and save to your account."}
       </p>
 
