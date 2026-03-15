@@ -8,6 +8,8 @@ import {
   categoryMatchesGap,
   type CatalogFragrance,
   type BudgetTier,
+  type StyleCluster,
+  type PriceTier,
 } from "@/data/fragranceCatalog";
 import type {
   RecommendationInput,
@@ -24,15 +26,105 @@ const BUDGET_MAP: Record<string, BudgetTier> = {
   niche: "niche",
 };
 
+/** Points per match (user-requested scoring). */
+const SCORE_GENDER = 20;
+const SCORE_ACCORD = 10;
+const SCORE_SEASON = 8;
+const SCORE_OCCASION = 8;
+const SCORE_VIBE = 6;
+const SCORE_PROJECTION = 4;
+const SCORE_LONGEVITY = 4;
+const SCORE_STYLE_CLUSTER = 10;
+const SCORE_PRICE_TIER = 8;
+
+/** Quiz q1 (family) -> style clusters that match (e.g. fresh -> fresh-clean). */
+const FAMILY_STYLE_CLUSTERS: Record<string, StyleCluster[]> = {
+  fresh: ["fresh-clean"],
+  sweet: ["sweet-gourmand"],
+  woody: ["dark-woody"],
+  spicy: ["spicy-oriental"],
+};
+
+/** Quiz q2 (occasion) -> style clusters that match. */
+const OCCASION_STYLE_CLUSTERS: Record<string, StyleCluster[]> = {
+  daily: ["daily-office"],
+  nightlife: ["date-night"],
+  date: ["date-night"],
+  all: ["daily-office", "date-night"],
+};
+
+/** Quiz q4 (budget) -> preferred price tiers for scoring. */
+const BUDGET_PRICE_TIERS: Record<string, PriceTier[]> = {
+  budget: ["budget"],
+  mid: ["designer"],
+  luxe: ["luxury", "designer"],
+  niche: ["niche", "ultra-niche"],
+};
+
+/** Quiz q1 (family) -> accords we consider a match for accord scoring. */
+const FAMILY_ACCORDS: Record<string, string[]> = {
+  fresh: ["citrus", "fresh", "aquatic", "green", "marine", "bergamot"],
+  sweet: ["vanilla", "amber", "gourmand", "sweet", "tonka", "caramel"],
+  woody: ["woody", "sandalwood", "cedar", "vetiver", "wood", "oud"],
+  spicy: ["spicy", "oud", "incense", "oriental", "pepper", "leather"],
+};
+
+/** Quiz q2 (occasion) -> occasion tags we look for in catalog. */
+const OCCASION_TAGS: Record<string, string[]> = {
+  daily: ["office", "casual"],
+  nightlife: ["evening"],
+  date: ["date"],
+  all: ["office", "casual", "date", "evening", "formal", "summer"],
+};
+
+/** Quiz q9 (longevity) -> catalog longevity values we consider a match. */
+const LONGEVITY_MAP: Record<string, string[]> = {
+  short: ["short"],
+  day: ["moderate", "long"],
+  trail: ["long"],
+};
+
+/** Quiz q8 (vibe) and catalog vibe: normalize so "seductive" matches "sensual", "timeless" matches "classic"/"refined", etc. */
+function vibeMatches(userVibe: string, catalogVibe: string): boolean {
+  if (!userVibe || !catalogVibe) return false;
+  const u = normalize(userVibe);
+  const c = normalize(catalogVibe);
+  if (u === c) return true;
+  const synonyms: Record<string, string[]> = {
+    seductive: ["sensual", "daring", "bold"],
+    adventurous: ["bold", "unusual", "edgy"],
+    timeless: ["classic", "refined", "elegant"],
+    clean: ["fresh", "minimal"],
+  };
+  for (const [quizVal, catalogVals] of Object.entries(synonyms)) {
+    if (normalize(quizVal) === u && catalogVals.some((v) => c === v || c.includes(v))) return true;
+  }
+  return false;
+}
+
 function normalize(s: string): string {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+/** Fisher–Yates shuffle (mutates array). */
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/** True if this catalog fragrance is already in the user's detected collection (exclude from recommendations). */
 function alreadyOwned(detected: { name: string; brand: string }[], f: CatalogFragrance): boolean {
-  const key = `${normalize(f.brand)} ${normalize(f.name)}`;
-  return detected.some(
-    (d) => `${normalize(d.brand)} ${normalize(d.name)}` === key
-  );
+  const catalogKey = `${normalize(f.brand)} ${normalize(f.name)}`;
+  const catalogNameOnly = normalize(f.name);
+  return detected.some((d) => {
+    const detectedKey = `${normalize(d.brand)} ${normalize(d.name)}`;
+    if (detectedKey === catalogKey) return true;
+    if (normalize(d.name) === catalogNameOnly) return true;
+    return false;
+  });
 }
 
 /** Infer categories present in collection from detected names/brands (simple keywords) */
@@ -56,41 +148,60 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     strengths,
     weaknesses,
     quizAnswers = {},
+    genderPreference: inputGender,
+    userPreferredSeasons,
+    userProjection,
+    userPreferredPriceTiers: inputPriceTiers,
   } = input;
 
-  const owned = new Set(detectedFragrances.map((d) => `${normalize(d.brand)} ${normalize(d.name)}`));
   const hasCategory = inferredCategories(detectedFragrances);
-  const budget = BUDGET_MAP[quizAnswers.q4 ?? "mid"] ?? "mid";
-  const designerNiche = (quizAnswers.q5 ?? "both") as "designer" | "niche" | "both";
   const family = (quizAnswers.q1 ?? "fresh") as string;
   const occasion = (quizAnswers.q2 ?? "daily") as string;
+  const genderPreference = (inputGender ?? quizAnswers.q11 ?? "open") as "masculine" | "feminine" | "unisex" | "open";
+
+  const userAccords = FAMILY_ACCORDS[family] ?? FAMILY_ACCORDS.fresh;
+  const userOccasions = OCCASION_TAGS[occasion] ?? OCCASION_TAGS.daily;
+  const userVibe = normalize(quizAnswers.q8 ?? "");
+  const userLongevityPref = (quizAnswers.q9 ?? "day") as string;
+  const userLongevityMatch = LONGEVITY_MAP[userLongevityPref] ?? LONGEVITY_MAP.day;
+
+  const familyClusters = FAMILY_STYLE_CLUSTERS[family] ?? [];
+  const occasionClusters = OCCASION_STYLE_CLUSTERS[occasion] ?? [];
+  const nicheCluster = (quizAnswers.q5 === "niche" ? ["luxury-niche" as StyleCluster] : []);
+  const userPreferredStyleClusters = Array.from(new Set<StyleCluster>([...familyClusters, ...occasionClusters, ...nicheCluster]));
+
+  const budgetFromQuiz = (quizAnswers.q4 ?? "mid") as string;
+  const userPreferredPriceTiers = inputPriceTiers?.length
+    ? (inputPriceTiers as PriceTier[])
+    : (BUDGET_PRICE_TIERS[budgetFromQuiz] ?? BUDGET_PRICE_TIERS.mid);
 
   const candidates = FRAGRANCE_CATALOG.filter((f) => !alreadyOwned(detectedFragrances, f));
 
   const score = (f: CatalogFragrance): number => {
     let s = 0;
-    const catLower = f.category.toLowerCase();
-    if (missingCategories.length > 0 && categoryMatchesGap(f.category, missingCategories)) s += 30;
-    if (family === "fresh" && (catLower.includes("fresh") || catLower.includes("aquatic") || catLower.includes("citrus"))) s += 15;
-    if (family === "woody" && (catLower.includes("wood"))) s += 15;
-    if (family === "sweet" && (catLower.includes("amber") || catLower.includes("gourmand") || catLower.includes("vanilla"))) s += 15;
-    if (family === "spicy" && (catLower.includes("spicy") || catLower.includes("oud") || catLower.includes("oriental"))) s += 15;
-    if (occasion === "daily" && f.occasions.includes("office")) s += 10;
-    if (occasion === "date" && f.occasions.includes("date")) s += 10;
-    if (occasion === "nightlife" && f.occasions.includes("evening")) s += 10;
-    if (budget === f.budgetTier) s += 8;
-    if (budget === "budget" && (f.budgetTier === "budget" || f.budgetTier === "mid")) s += 5;
-    if (designerNiche === f.designerNiche) s += 5;
-    if (designerNiche === "both") s += 2;
-    if (!hasCategory.has(f.category)) s += 5;
+    if (genderPreference !== "open" && f.gender === genderPreference) s += SCORE_GENDER;
+    if (f.accords?.length && userAccords.some((a) => f.accords!.some((c) => normalize(c) === normalize(a)))) s += SCORE_ACCORD;
+    if (userPreferredSeasons?.length && f.seasons?.length && f.seasons.some((se) => userPreferredSeasons.some((us) => normalize(us) === normalize(se)))) s += SCORE_SEASON;
+    if (f.occasions.some((o) => userOccasions.includes(o))) s += SCORE_OCCASION;
+    if (f.vibe && userVibe && vibeMatches(userVibe, f.vibe)) s += SCORE_VIBE;
+    if (userProjection && f.projection && normalize(f.projection) === normalize(userProjection)) s += SCORE_PROJECTION;
+    if (f.longevity && userLongevityMatch.some((l) => normalize(f.longevity!) === normalize(l))) s += SCORE_LONGEVITY;
+    if (userPreferredStyleClusters.length > 0 && userPreferredStyleClusters.includes(f.styleCluster)) s += SCORE_STYLE_CLUSTER;
+    if (userPreferredPriceTiers.length > 0 && userPreferredPriceTiers.includes(f.priceTier)) s += SCORE_PRICE_TIER;
+    if (missingCategories.length > 0 && categoryMatchesGap(f.category, missingCategories)) s += 5;
     return s;
   };
 
-  const sorted = [...candidates].sort((a, b) => score(b) - score(a));
+  const withScores = candidates.map((f) => ({ f, s: score(f) }));
+  withScores.sort((a, b) => b.s - a.s);
+  const maxScore = withScores.length > 0 ? withScores[0].s : 0;
+  const topTier = maxScore <= 0 ? withScores : withScores.filter(({ s }) => s >= maxScore - 10);
+  const pool = topTier.length > 10 ? topTier.slice(0, 12) : topTier;
+  const shuffled = shuffle([...pool]);
   const picked: PickedFragrance[] = [];
   const usedIds = new Set<string>();
 
-  for (const f of sorted) {
+  for (const { f } of shuffled) {
     if (picked.length >= 5) break;
     if (usedIds.has(f.id)) continue;
     usedIds.add(f.id);

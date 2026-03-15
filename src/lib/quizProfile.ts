@@ -48,11 +48,13 @@ export function generateScentProfile(answers: Record<string, string>): ScentProf
   if (vibe === "timeless") parts.push("You value timeless, classic character.");
 
   const description = parts.join(" ");
+  const genderPreference = (answers.q11 ?? "open") as "masculine" | "feminine" | "unisex" | "open";
 
   return {
     dominant,
     secondary,
     accent,
     description: description || "Your answers point to a balanced, versatile scent profile—fresh enough for day, with depth for when it matters.",
+    genderPreference,
   };
 }

@@ -3,11 +3,15 @@
  * These describe the shape of data we use across the app (results, quiz, profile).
  */
 
+export type GenderPreference = "masculine" | "feminine" | "unisex" | "open";
+
 export interface ScentProfile {
   dominant: string;
   secondary: string;
   accent: string;
   description: string;
+  /** Preferred fragrance gender; used for recommendations. */
+  genderPreference?: GenderPreference;
 }
 
 import type { ScoreBreakdown } from "@/lib/scoring";

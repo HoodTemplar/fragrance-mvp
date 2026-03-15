@@ -6,14 +6,23 @@ import { useAuth } from "@/contexts/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import { uploadCollectionPhoto } from "@/lib/storage";
 import { createCollectionUpload } from "@/lib/collectionUploads";
-import { analyzeCollectionImage } from "@/app/actions/analyze";
-import { generateCollectionAnalysis } from "@/app/actions/analyze";
+import { analyzeCollectionImage, generateCollectionAnalysis } from "@/app/actions/analyze";
 import { trackEvent } from "@/lib/events";
+
+const AI_UNAVAILABLE_MESSAGE = "AI analysis temporarily unavailable. Please try again.";
 
 const STORAGE_DETECTIONS = "scent-dna-upload-detections";
 const STORAGE_IMAGE = "scent-dna-upload-image";
 const STORAGE_MIME = "scent-dna-upload-mime";
+const STORAGE_GENDER_PREF = "scent-dna-upload-gender-preference";
 const RESULT_KEY = "scent-dna-collection-result";
+
+const GENDER_OPTIONS = [
+  { value: "open", label: "Open — any" },
+  { value: "masculine", label: "Masculine" },
+  { value: "feminine", label: "Feminine" },
+  { value: "unisex", label: "Unisex" },
+] as const;
 
 function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
@@ -33,6 +42,7 @@ export default function UploadPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
+  const [genderPreference, setGenderPreference] = useState<string>("open");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,14 +62,22 @@ export default function UploadPage() {
       const { base64, mimeType } = await fileToBase64(file);
       console.log("[upload flow] Client: file read as base64, length:", base64.length);
 
-      // Step 1: OpenAI detection
-      const { detections, needsConfirmation } = await analyzeCollectionImage(base64, mimeType);
+      // Step 1: OpenAI detection (do not destructure until we know result is valid)
+      const analysisResult = await analyzeCollectionImage(base64, mimeType);
+      if (analysisResult?.error || !analysisResult) {
+        setError(analysisResult?.error ?? AI_UNAVAILABLE_MESSAGE);
+        setLoading(false);
+        return;
+      }
+      const detections = Array.isArray(analysisResult.detections) ? analysisResult.detections : [];
+      const needsConfirmation = Boolean(analysisResult.needsConfirmation);
       console.log("[upload flow] Client: Step 1 (OpenAI detection) — done, detections:", detections.length, "needsConfirmation:", needsConfirmation);
 
       if (needsConfirmation && detections.length > 0) {
         sessionStorage.setItem(STORAGE_DETECTIONS, JSON.stringify(detections));
         sessionStorage.setItem(STORAGE_IMAGE, base64);
         sessionStorage.setItem(STORAGE_MIME, mimeType);
+        sessionStorage.setItem(STORAGE_GENDER_PREF, genderPreference);
         console.log("[upload flow] Client: redirecting to confirmation page");
         router.push("/upload/confirm");
         setLoading(false);
@@ -78,8 +96,13 @@ export default function UploadPage() {
 
       trackEvent("image_uploaded", { uploadId: uploadRecord.id });
 
-      // Step 4: analysis generation
-      const result = await generateCollectionAnalysis(detections);
+      // Step 4: analysis generation (pass gender preference for recommendations)
+      const result = await generateCollectionAnalysis(detections, { genderPreference });
+      if (!result) {
+        setError(AI_UNAVAILABLE_MESSAGE);
+        setLoading(false);
+        return;
+      }
       console.log("[upload flow] Client: Step 4 (analysis generation) — done");
 
       // Step 5: result save & redirect
@@ -110,6 +133,19 @@ export default function UploadPage() {
         </p>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
+          <label className="block">
+            <span className="text-sm text-charcoal/70 block mb-2">Fragrance preference</span>
+            <select
+              value={genderPreference}
+              onChange={(e) => setGenderPreference(e.target.value)}
+              className="block w-full py-2.5 px-3 border border-charcoal/20 bg-cream text-charcoal text-sm focus:outline-none focus:border-charcoal/50"
+            >
+              {GENDER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <span className="text-xs text-charcoal/50 mt-1 block">Used to tailor recommendations.</span>
+          </label>
           <label className="block">
             <span className="text-sm text-charcoal/70 block mb-2">Choose a photo</span>
             <input

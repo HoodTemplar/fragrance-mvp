@@ -12,7 +12,7 @@ const CONFIDENCE_THRESHOLD = 0.7;
 function getOpenAI(): OpenAI {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) {
-    throw new Error("OPENAI_API_KEY is not set in .env.local");
+    throw new Error("OPENAI_API_KEY is not set");
   }
   return new OpenAI({ apiKey: key });
 }

@@ -105,4 +105,14 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       { value: "enthusiast", label: "Enthusiast — I live and breathe scent" },
     ],
   },
+  {
+    id: "q11",
+    question: "What type of fragrances do you prefer?",
+    options: [
+      { value: "masculine", label: "Masculine" },
+      { value: "feminine", label: "Feminine" },
+      { value: "unisex", label: "Unisex" },
+      { value: "open", label: "Open — I like any" },
+    ],
+  },
 ];

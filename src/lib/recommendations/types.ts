@@ -4,6 +4,8 @@
 
 import type { CatalogFragrance } from "@/data/fragranceCatalog";
 
+export type GenderPreference = "masculine" | "feminine" | "unisex" | "open";
+
 export interface RecommendationInput {
   /** Fragrances detected in the user's collection (name, brand) */
   detectedFragrances: { name: string; brand: string }[];
@@ -13,8 +15,16 @@ export interface RecommendationInput {
   strengths: string[];
   /** Collection weaknesses */
   weaknesses: string[];
-  /** Optional quiz answers (q1 = family, q2 = occasion, q4 = budget, q5 = designer/niche) */
+  /** Optional quiz answers (q1 = family, q2 = occasion, q4 = budget, q5 = designer/niche, q8 = vibe, q9 = longevity, q11 = genderPreference) */
   quizAnswers?: Record<string, string>;
+  /** Gender preference for recommendations (from quiz q11 or upload flow). */
+  genderPreference?: GenderPreference;
+  /** Preferred seasons (optional; if not set, season match is skipped). */
+  userPreferredSeasons?: string[];
+  /** Preferred projection (optional; if not set, projection match is skipped). */
+  userProjection?: string;
+  /** Preferred price tiers (optional; when set, matching fragrances get a score boost). */
+  userPreferredPriceTiers?: string[];
 }
 
 /** One fragrance pick from the engine (before AI polish adds the note) */

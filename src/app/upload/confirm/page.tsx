@@ -13,12 +13,22 @@ import { uploadCollectionPhoto } from "@/lib/storage";
 import { createCollectionUpload } from "@/lib/collectionUploads";
 import { generateCollectionAnalysis } from "@/app/actions/analyze";
 import { trackEvent } from "@/lib/events";
+
+const AI_UNAVAILABLE_MESSAGE = "AI analysis temporarily unavailable. Please try again.";
 import type { DetectionItem } from "@/lib/ai/types";
 
 const STORAGE_DETECTIONS = "scent-dna-upload-detections";
 const STORAGE_IMAGE = "scent-dna-upload-image";
 const STORAGE_MIME = "scent-dna-upload-mime";
+const STORAGE_GENDER_PREF = "scent-dna-upload-gender-preference";
 const RESULT_KEY = "scent-dna-collection-result";
+
+const GENDER_OPTIONS = [
+  { value: "open", label: "Open — any" },
+  { value: "masculine", label: "Masculine" },
+  { value: "feminine", label: "Feminine" },
+  { value: "unisex", label: "Unisex" },
+] as const;
 
 export default function UploadConfirmPage() {
   const router = useRouter();
@@ -26,6 +36,7 @@ export default function UploadConfirmPage() {
   const [detections, setDetections] = useState<DetectionItem[]>([]);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState<string>("image/jpeg");
+  const [genderPreference, setGenderPreference] = useState<string>("open");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,9 +45,11 @@ export default function UploadConfirmPage() {
       const raw = sessionStorage.getItem(STORAGE_DETECTIONS);
       const img = sessionStorage.getItem(STORAGE_IMAGE);
       const mime = sessionStorage.getItem(STORAGE_MIME);
+      const pref = sessionStorage.getItem(STORAGE_GENDER_PREF);
       if (raw) setDetections(JSON.parse(raw));
       if (img) setImageBase64(img);
       if (mime) setMimeType(mime);
+      if (pref && ["open", "masculine", "feminine", "unisex"].includes(pref)) setGenderPreference(pref);
     } catch {
       setDetections([]);
     }
@@ -51,12 +64,18 @@ export default function UploadConfirmPage() {
     setError(null);
     try {
       console.log("[upload flow] Confirm page: Step 4 (analysis generation) — calling generateCollectionAnalysis");
-      const result = await generateCollectionAnalysis(detections);
+      const result = await generateCollectionAnalysis(detections, { genderPreference });
+      if (!result) {
+        setError(AI_UNAVAILABLE_MESSAGE);
+        setLoading(false);
+        return;
+      }
       console.log("[upload flow] Confirm page: Step 4 — done");
       sessionStorage.setItem(RESULT_KEY, JSON.stringify(result));
       sessionStorage.removeItem(STORAGE_DETECTIONS);
       sessionStorage.removeItem(STORAGE_IMAGE);
       sessionStorage.removeItem(STORAGE_MIME);
+      sessionStorage.removeItem(STORAGE_GENDER_PREF);
 
       if (user && imageBase64) {
         console.log("[upload flow] Confirm page: uploading photo to storage and saving record");
@@ -93,9 +112,22 @@ export default function UploadConfirmPage() {
     <div className="max-w-lg mx-auto px-4 py-12 md:py-16">
       <p className="text-charcoal/50 text-sm tracking-wide uppercase mb-2">Confirm</p>
       <h1 className="font-serif text-2xl text-charcoal mb-2">We found these bottles</h1>
-      <p className="text-charcoal/60 text-sm mb-8">
+      <p className="text-charcoal/60 text-sm mb-6">
         Some readings were uncertain. Remove any that are wrong, then confirm to generate your analysis.
       </p>
+
+      <label className="block mb-6">
+        <span className="text-sm text-charcoal/70 block mb-2">Fragrance preference (for recommendations)</span>
+        <select
+          value={genderPreference}
+          onChange={(e) => setGenderPreference(e.target.value)}
+          className="block w-full py-2.5 px-3 border border-charcoal/20 bg-white text-charcoal text-sm focus:outline-none focus:border-charcoal/50"
+        >
+          {GENDER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </label>
 
       <ul className="space-y-3 mb-8">
         {detections.map((d, i) => (
