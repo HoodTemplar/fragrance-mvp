@@ -14,6 +14,7 @@ export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [marketingConsent, setMarketingConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -24,7 +25,7 @@ export default function SignupPage() {
     setMessage(null);
     setLoading(true);
     try {
-      const { error: err } = await signUp(email, password);
+      const { error: err } = await signUp(email, password, { marketingConsent });
       if (err) {
         setError(err);
         setLoading(false);
@@ -70,6 +71,20 @@ export default function SignupPage() {
             className="w-full px-3 py-2.5 border border-charcoal/20 text-charcoal bg-cream"
           />
         </label>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={marketingConsent}
+            onChange={(e) => setMarketingConsent(e.target.checked)}
+            className="mt-1 rounded border-charcoal/30 text-charcoal focus:ring-charcoal/50"
+          />
+          <span className="text-sm text-charcoal/70">
+            I agree to receive marketing emails, product updates, and promotions.
+          </span>
+        </label>
+        <p className="text-xs text-charcoal/50 -mt-2 ml-6">
+          You can unsubscribe at any time.
+        </p>
         {error && (
           <p className="text-sm text-red-600">{error}</p>
         )}

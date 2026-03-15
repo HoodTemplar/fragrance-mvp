@@ -271,3 +271,27 @@ create policy "Allow insert app_events"
   with check (true);
 
 comment on table public.app_events is 'Simple event tracking: image_uploaded, quiz_completed, recommendation_viewed, recommendation_clicked, result_shared.';
+
+-- -----------------------------------------------------------------------------
+-- 12. EMAIL_SUBSCRIBERS (signup + optional marketing opt-in)
+-- One row per email; source = where they signed up (e.g. signup_page).
+-- marketing_opt_in = whether they checked the "email me tips/offers" box.
+-- -----------------------------------------------------------------------------
+create table if not exists public.email_subscribers (
+  id uuid default gen_random_uuid() primary key,
+  email text not null unique,
+  marketing_opt_in boolean not null default false,
+  source text not null default 'signup_page',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.email_subscribers enable row level security;
+
+-- Allow server/service role to insert and update (e.g. from signup action)
+create policy "Allow insert email_subscribers"
+  on public.email_subscribers for insert with check (true);
+create policy "Allow update email_subscribers"
+  on public.email_subscribers for update using (true) with check (true);
+
+comment on table public.email_subscribers is 'Emails from signup; marketing_opt_in = checkbox on signup. source = signup_page, etc.';
