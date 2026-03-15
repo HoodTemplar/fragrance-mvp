@@ -5,12 +5,12 @@
  * where .env.local is available.
  */
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "@/app/actions/auth";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/";
@@ -92,5 +92,19 @@ export default function LoginPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="max-w-sm mx-auto px-4 py-16 md:py-24">
+        <p className="text-charcoal/50 text-sm tracking-wide uppercase mb-2">Sign in</p>
+        <h1 className="font-serif text-2xl text-charcoal mb-8">Log in</h1>
+        <p className="text-charcoal/60 text-sm">Loading…</p>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }

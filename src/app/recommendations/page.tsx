@@ -13,7 +13,7 @@ import SaveResultButton from "@/components/SaveResultButton";
 import RecommendationCard from "@/components/RecommendationCard";
 import { trackEvent } from "@/lib/events";
 import { MOCK_QUIZ_RESULT, MOCK_COLLECTION_RESULT } from "@/lib/mockData";
-import type { ScentProfile } from "@/types";
+import type { ScentProfile, QuizResult, CollectionResult } from "@/types";
 import type { RecommendedFragrance } from "@/types";
 
 const QUIZ_RESULT_KEY = "scent-dna-quiz-result";
@@ -32,7 +32,7 @@ function RecommendationsContent() {
   const [recommendations, setRecommendations] = useState<RecommendedFragrance[]>([]);
   const [layeringSuggestions, setLayeringSuggestions] = useState<string[]>([]);
   const [whenToWear, setWhenToWear] = useState<string[]>([]);
-  const [saveData, setSaveData] = useState<unknown>(null);
+  const [saveData, setSaveData] = useState<QuizResult | CollectionResult | null>(null);
   const [saveType, setSaveType] = useState<"quiz" | "collection">("quiz");
   const recommendationViewedFired = useRef(false);
 
@@ -83,7 +83,7 @@ function RecommendationsContent() {
     const rawCollection = typeof window !== "undefined" ? sessionStorage.getItem(COLLECTION_RESULT_KEY) : null;
     if (rawCollection) {
       try {
-        const data = JSON.parse(rawCollection) as { scentProfile: ScentProfile; recommendedFragrances: RecommendedFragrance[]; layeringSuggestions?: string[]; whenToWear?: string[] };
+        const data = JSON.parse(rawCollection) as CollectionResult;
         setProfile(data.scentProfile ?? null);
         setRecommendations(data.recommendedFragrances ?? []);
         setLayeringSuggestions(data.layeringSuggestions ?? []);
@@ -110,8 +110,18 @@ function RecommendationsContent() {
   }, []);
 
   const fromQuiz = source === "quiz";
-  const displayProfile = profile ?? (fromQuiz ? MOCK_QUIZ_RESULT.profile : MOCK_COLLECTION_RESULT.scentProfile);
-  const displayRecs = recommendations.length > 0 ? recommendations : (fromQuiz ? MOCK_QUIZ_RESULT.recommendations : MOCK_COLLECTION_RESULT.recommendedFragrances);
+
+  const displayProfile =
+    profile ?? (fromQuiz
+      ? MOCK_QUIZ_RESULT.profile
+      : MOCK_COLLECTION_RESULT.scentProfile);
+
+  const displayRecs =
+    recommendations.length > 0
+      ? recommendations
+      : fromQuiz
+        ? MOCK_QUIZ_RESULT.recommendations
+        : MOCK_COLLECTION_RESULT.recommendedFragrances;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-12 md:py-16">
@@ -171,7 +181,7 @@ function RecommendationsContent() {
       )}
 
       <div className="flex gap-4 mt-10 pt-6">
-      {Boolean(saveData) && <SaveResultButton type={saveType} data={saveData as Parameters<typeof SaveResultButton>[0]["data"]} />}
+      {saveData && <SaveResultButton type={saveType} data={saveData} />}
         <Link href="/" className="px-5 py-2.5 border border-charcoal/20 text-charcoal text-sm hover:bg-charcoal/5 transition-colors">Home</Link>
       </div>
     </div>

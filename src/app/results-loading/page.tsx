@@ -5,7 +5,7 @@
  * experience then redirects to results (MVP: placeholder analysis).
  */
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 const REDIRECT_DELAY_MS = 3200;
@@ -15,7 +15,7 @@ const STEPS = [
   "Building your scent profile",
 ];
 
-export default function ResultsLoadingPage() {
+function ResultsLoadingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const uploadId = searchParams.get("upload_id");
@@ -83,5 +83,20 @@ export default function ResultsLoadingPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function ResultsLoadingPage() {
+  return (
+    <Suspense
+      fallback={
+      <div className="min-h-screen bg-charcoal text-cream flex flex-col items-center justify-center px-4">
+        <p className="text-cream/50 text-xs tracking-[0.2em] uppercase mb-6">Analysis in progress</p>
+        <h1 className="font-serif text-2xl md:text-3xl font-light tracking-tight text-center">Analyzing your collection</h1>
+        <p className="text-cream/40 text-sm mt-6">Loading…</p>
+      </div>
+    }>
+      <ResultsLoadingContent />
+    </Suspense>
   );
 }
