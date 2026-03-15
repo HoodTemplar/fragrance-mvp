@@ -3,6 +3,7 @@
  *
  * Records a simple app event (image_uploaded, quiz_completed, recommendation_viewed,
  * recommendation_clicked, result_shared) in Supabase app_events.
+ * Best-effort: always returns 200 so clients don't see 500s; failures are logged.
  */
 
 import { NextResponse } from "next/server";
@@ -36,10 +37,13 @@ export async function POST(request: Request) {
     });
 
     if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      console.error("[api/events] Supabase insert failed:", error.message, "code:", error.code);
+      return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ ok: false }, { status: 500 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[api/events] Unexpected error:", msg);
+    return NextResponse.json({ ok: true });
   }
 }
