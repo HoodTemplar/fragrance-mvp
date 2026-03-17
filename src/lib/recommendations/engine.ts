@@ -30,20 +30,31 @@ const BUDGET_MAP: Record<string, BudgetTier> = {
   niche: "niche",
 };
 
-/** Points per match (user-requested scoring). */
-const SCORE_GENDER = 20;
-const SCORE_ACCORD = 10;
-const SCORE_SEASON = 8;
-const SCORE_OCCASION = 8;
-const SCORE_VIBE = 6;
-const SCORE_PROJECTION = 4;
-const SCORE_LONGEVITY = 4;
-const SCORE_STYLE_CLUSTER = 10;
+/** Points per match (stronger matches weighted higher). */
+const SCORE_GENDER = 22;
+const SCORE_ACCORD_PER_MATCH = 8;
+const SCORE_ACCORD_MAX = 20;
+const SCORE_SEASON = 10;
+const SCORE_OCCASION_PER = 5;
+const SCORE_OCCASION_MAX = 14;
+const SCORE_VIBE_STRONG = 10;
+const SCORE_VIBE_SYNONYM = 6;
+const SCORE_PROJECTION = 6;
+const SCORE_LONGEVITY = 6;
+const SCORE_STYLE_CLUSTER = 12;
 const SCORE_PRICE_TIER = 8;
+const SCORE_GAP_CATEGORY = 8;
 /** Max points from trait alignment (user vs fragrance profile). */
 const SCORE_ALIGNMENT_MAX = 40;
 /** Penalty when user avoids sweet and fragrance is sweet. */
 const PENALTY_AVOID_SWEET = 50;
+/** Penalties for mismatches. */
+const PENALTY_GENDER_MISMATCH = 18;
+const PENALTY_PROJECTION_OPPOSITE = 8;
+const PENALTY_LONGEVITY_OPPOSITE = 4;
+
+/** Size of scored candidate pool (top N by score) before diversity selection. */
+const CANDIDATE_POOL_SIZE = 75;
 
 /** Quiz q1 (family) -> style clusters that match (e.g. fresh -> fresh-clean). */
 const FAMILY_STYLE_CLUSTERS: Record<string, StyleCluster[]> = {
@@ -92,22 +103,31 @@ const LONGEVITY_MAP: Record<string, string[]> = {
   trail: ["long"],
 };
 
-/** Quiz q8 (vibe) and catalog vibe: normalize so "seductive" matches "sensual", "timeless" matches "classic"/"refined", etc. */
-function vibeMatches(userVibe: string, catalogVibe: string): boolean {
-  if (!userVibe || !catalogVibe) return false;
+/** User vibe <-> catalog vibe: synonym mapping for scoring. */
+const VIBE_SYNONYMS: Record<string, string[]> = {
+  seductive: ["sensual", "daring", "bold", "dark", "mysterious"],
+  adventurous: ["bold", "unusual", "edgy"],
+  timeless: ["classic", "refined", "elegant"],
+  clean: ["fresh", "minimal", "airy"],
+  fresh: ["clean", "airy", "minimal"],
+  mysterious: ["dark", "seductive", "bold", "intense"],
+  warm: ["spicy", "amber", "cozy", "rich"],
+};
+
+/** Returns 2 = exact match, 1 = synonym match, 0 = no match. */
+function vibeMatchStrength(userVibe: string, catalogVibe: string): 0 | 1 | 2 {
+  if (!userVibe || !catalogVibe) return 0;
   const u = normalize(userVibe);
   const c = normalize(catalogVibe);
-  if (u === c) return true;
-  const synonyms: Record<string, string[]> = {
-    seductive: ["sensual", "daring", "bold"],
-    adventurous: ["bold", "unusual", "edgy"],
-    timeless: ["classic", "refined", "elegant"],
-    clean: ["fresh", "minimal"],
-  };
-  for (const [quizVal, catalogVals] of Object.entries(synonyms)) {
-    if (normalize(quizVal) === u && catalogVals.some((v) => c === v || c.includes(v))) return true;
+  if (u === c) return 2;
+  const catalogWords = c.split(/\s+/).filter(Boolean);
+  const userSynonyms = VIBE_SYNONYMS[u];
+  if (userSynonyms?.some((v) => catalogWords.some((w) => w === v || w.includes(v)))) return 1;
+  if (userSynonyms?.some((v) => c === v || c.includes(v))) return 1;
+  for (const [quizVal, catalogVals] of Object.entries(VIBE_SYNONYMS)) {
+    if (normalize(quizVal) === u && catalogVals.some((v) => c === v || c.includes(v))) return 1;
   }
-  return false;
+  return 0;
 }
 
 function normalize(s: string): string {
@@ -198,16 +218,53 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
 
   const score = (f: CatalogFragrance): number => {
     let s = 0;
-    if (genderPreference !== "open" && f.gender === genderPreference) s += SCORE_GENDER;
-    if (f.accords?.length && userAccords.some((a) => f.accords!.some((c) => normalize(c) === normalize(a)))) s += SCORE_ACCORD;
-    if (userPreferredSeasons?.length && f.seasons?.length && f.seasons.some((se) => userPreferredSeasons.some((us) => normalize(us) === normalize(se)))) s += SCORE_SEASON;
-    if (f.occasions.some((o) => userOccasions.includes(o))) s += SCORE_OCCASION;
-    if (f.vibe && userVibe && vibeMatches(userVibe, f.vibe)) s += SCORE_VIBE;
-    if (userProjection && f.projection && normalize(f.projection) === normalize(userProjection)) s += SCORE_PROJECTION;
-    if (f.longevity && userLongevityMatch.some((l) => normalize(f.longevity!) === normalize(l))) s += SCORE_LONGEVITY;
+
+    if (genderPreference !== "open") {
+      if (f.gender === genderPreference) s += SCORE_GENDER;
+      else if (f.gender !== "unisex") s -= PENALTY_GENDER_MISMATCH;
+    }
+
+    if (f.accords?.length && userAccords.length > 0) {
+      const matchCount = userAccords.filter((a) =>
+        f.accords!.some((c) => normalize(c) === normalize(a) || normalize(c).includes(normalize(a)))
+      ).length;
+      if (matchCount > 0) s += Math.min(SCORE_ACCORD_MAX, matchCount * SCORE_ACCORD_PER_MATCH);
+    }
+
+    if (userPreferredSeasons?.length && f.seasons?.length) {
+      const seasonMatch = f.seasons.some((se) =>
+        userPreferredSeasons.some((us) => normalize(us) === normalize(se))
+      );
+      if (seasonMatch) s += SCORE_SEASON;
+    }
+
+    const occasionMatches = f.occasions.filter((o) => userOccasions.includes(o));
+    if (occasionMatches.length > 0) s += Math.min(SCORE_OCCASION_MAX, occasionMatches.length * SCORE_OCCASION_PER);
+
+    const vibeStrength = f.vibe && userVibe ? vibeMatchStrength(userVibe, f.vibe) : 0;
+    if (vibeStrength === 2) s += SCORE_VIBE_STRONG;
+    else if (vibeStrength === 1) s += SCORE_VIBE_SYNONYM;
+
+    if (userProjection && f.projection) {
+      const proj = normalize(f.projection);
+      const userProj = normalize(userProjection);
+      if (proj === userProj) s += SCORE_PROJECTION;
+      else if (
+        (userProj === "intimate" && (proj === "strong" || proj === "bold")) ||
+        (userProj === "strong" && (proj === "intimate" || proj === "soft"))
+      ) s -= PENALTY_PROJECTION_OPPOSITE;
+    }
+
+    if (f.longevity && userLongevityMatch.length > 0) {
+      const fragLong = normalize(f.longevity);
+      const match = userLongevityMatch.some((l) => normalize(l) === fragLong);
+      if (match) s += SCORE_LONGEVITY;
+      else if (userLongevityPref === "short" && fragLong === "long") s -= PENALTY_LONGEVITY_OPPOSITE;
+    }
+
     if (userPreferredStyleClusters.length > 0 && userPreferredStyleClusters.includes(f.styleCluster)) s += SCORE_STYLE_CLUSTER;
     if (userPreferredPriceTiers.length > 0 && userPreferredPriceTiers.includes(f.priceTier)) s += SCORE_PRICE_TIER;
-    if (missingCategories.length > 0 && categoryMatchesGap(f.category, missingCategories)) s += 5;
+    if (missingCategories.length > 0 && categoryMatchesGap(f.category, missingCategories)) s += SCORE_GAP_CATEGORY;
 
     const fragProfile = getFragranceProfile(f);
     if (avoidSweet && fragProfile.sweetness > 50) s -= PENALTY_AVOID_SWEET;
@@ -223,12 +280,14 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
 
   const withScores = candidates.map((f) => ({ f, s: score(f) }));
   withScores.sort((a, b) => b.s - a.s);
-  const maxScore = withScores.length > 0 ? withScores[0].s : 0;
-  const topTier = maxScore <= 0 ? withScores : withScores.filter(({ s }) => s >= maxScore - 10);
-  const pool = topTier.length > 10 ? topTier.slice(0, 12) : topTier;
-  const shuffled = shuffle([...pool]);
-  const picked: PickedFragrance[] = [];
+  const poolSize = Math.min(CANDIDATE_POOL_SIZE, withScores.length);
+  const pool = withScores.slice(0, poolSize);
+
+  type Scored = (typeof pool)[number];
   const usedIds = new Set<string>();
+  const usedBrands = new Set<string>();
+  const usedClusters = new Set<string>();
+  const picked: PickedFragrance[] = [];
 
   const userContext = {
     family,
@@ -238,7 +297,63 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     missingCategories,
   };
 
-  for (const { f } of shuffled) {
+  type DiversitySlot = "safe" | "bold" | "niche" | "versatile" | "standout";
+  const slotOrder: DiversitySlot[] = ["safe", "versatile", "bold", "niche", "standout"];
+
+  function slotFor(f: CatalogFragrance, fragProfile: ReturnType<typeof getFragranceProfile>): DiversitySlot {
+    const cluster = f.styleCluster;
+    const occasions = f.occasions ?? [];
+    const versatile = occasions.length >= 3 && fragProfile.versatility >= 50;
+    const isNiche = f.priceTier === "niche" || f.priceTier === "ultra-niche";
+    const isBold = ["date-night", "spicy-oriental", "dark-woody"].includes(cluster);
+    const isSafe = ["daily-office", "fresh-clean"].includes(cluster) || fragProfile.versatility >= 60;
+
+    if (isSafe && !isBold) return "safe";
+    if (isBold) return "bold";
+    if (isNiche) return "niche";
+    if (versatile) return "versatile";
+    return "standout";
+  }
+
+  function pickBestForSlot(slot: DiversitySlot, from: Scored[]): Scored | null {
+    const fragProfiles = new Map<string, ReturnType<typeof getFragranceProfile>>();
+    const remaining = from.filter(({ f }) => !usedIds.has(f.id));
+    for (const { f } of remaining) {
+      if (!fragProfiles.has(f.id)) fragProfiles.set(f.id, getFragranceProfile(f));
+    }
+    const withSlots = remaining.map((scored) => ({
+      scored,
+      slot: slotFor(scored.f, fragProfiles.get(scored.f.id)!),
+    }));
+    const forSlot = withSlots.filter((x) => x.slot === slot);
+    if (forSlot.length === 0) return null;
+    forSlot.sort((a, b) => {
+      const preferNewBrand = (s: Scored) => (usedBrands.has(s.f.brand) ? 0 : 1);
+      const preferNewCluster = (s: Scored) => (usedClusters.has(s.f.styleCluster) ? 0 : 1);
+      const brandDiff = preferNewBrand(b.scored) - preferNewBrand(a.scored);
+      if (brandDiff !== 0) return brandDiff;
+      const clusterDiff = preferNewCluster(b.scored) - preferNewCluster(a.scored);
+      if (clusterDiff !== 0) return clusterDiff;
+      return b.scored.s - a.scored.s;
+    });
+    return forSlot[0].scored;
+  }
+
+  for (const slot of slotOrder) {
+    if (picked.length >= 5) break;
+    const best = pickBestForSlot(slot, pool);
+    if (best) {
+      usedIds.add(best.f.id);
+      usedBrands.add(best.f.brand);
+      usedClusters.add(best.f.styleCluster);
+      const fragProfile = getFragranceProfile(best.f);
+      const reason = buildRecommendationExplanation(userContext, best.f, fragProfile);
+      picked.push({ id: best.f.id, name: best.f.name, brand: best.f.brand, category: best.f.category, reason });
+    }
+  }
+
+  const shuffledPool = shuffle([...pool]);
+  for (const { f } of shuffledPool) {
     if (picked.length >= 5) break;
     if (usedIds.has(f.id)) continue;
     usedIds.add(f.id);
@@ -256,17 +371,46 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     picked.push({ id: next.id, name: next.name, brand: next.brand, category: next.category, reason });
   }
 
+  // Deduplicate by id and by (brand, name) so the same fragrance never appears twice (e.g. catalog has "naxos" and "xerjoff-naxos")
+  function canonicalKey(p: { brand: string; name: string }): string {
+    return `${normalize(p.brand)}|${normalize(p.name)}`;
+  }
+  const seenIds = new Set<string>();
+  const seenKeys = new Set<string>();
+  const unique: PickedFragrance[] = [];
+  for (const p of picked) {
+    const key = canonicalKey(p);
+    if (seenIds.has(p.id) || seenKeys.has(key)) continue;
+    seenIds.add(p.id);
+    seenKeys.add(key);
+    unique.push(p);
+  }
+
+  // Backfill to exactly 5 from next highest-ranked (withScores order), preserving diversity by taking best-available
+  for (const { f } of withScores) {
+    if (unique.length >= 5) break;
+    const key = canonicalKey(f);
+    if (seenIds.has(f.id) || seenKeys.has(key)) continue;
+    seenIds.add(f.id);
+    seenKeys.add(key);
+    const fragProfile = getFragranceProfile(f);
+    const reason = buildRecommendationExplanation(userContext, f, fragProfile);
+    unique.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason });
+  }
+
+  const pickedFinal = unique.slice(0, 5);
+
   const layering: LayeringSuggestionRaw[] = [];
   const detectedNames = detectedFragrances.map((d) => `${d.brand} ${d.name}`);
-  if (detectedNames.length >= 1 && picked.length >= 1) {
+  if (detectedNames.length >= 1 && pickedFinal.length >= 1) {
     layering.push({
       first: detectedNames[0],
-      second: `${picked[0].brand} ${picked[0].name}`,
+      second: `${pickedFinal[0].brand} ${pickedFinal[0].name}`,
       reason: "Use your existing bottle as base and add the recommended one for a day-to-evening transition.",
     });
   }
-  if (hasCategory.has("Woody") && picked.some((p) => p.category.toLowerCase().includes("fresh"))) {
-    const freshPick = picked.find((p) => p.category.toLowerCase().includes("fresh") || p.category.toLowerCase().includes("citrus"));
+  if (hasCategory.has("Woody") && pickedFinal.some((p) => p.category.toLowerCase().includes("fresh"))) {
+    const freshPick = pickedFinal.find((p) => p.category.toLowerCase().includes("fresh") || p.category.toLowerCase().includes("citrus"));
     if (freshPick) layering.push({
       first: freshPick.name,
       second: "one of your woody bottles",
@@ -283,12 +427,12 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
   const layeringFinal = layering.slice(0, 3);
 
   const whenToWear: WhenToWearRaw[] = [];
-  if (hasCategory.has("Fresh") || picked.some((p) => p.category.toLowerCase().includes("fresh"))) {
+  if (hasCategory.has("Fresh") || pickedFinal.some((p) => p.category.toLowerCase().includes("fresh"))) {
     whenToWear.push({ occasion: "Office", tip: "Reach for your fresh or citrus options for a professional, approachable scent." });
   }
   if (
     hasCategory.has("Woody") ||
-    picked.some((p) => p.category.toLowerCase().includes("wood"))
+    pickedFinal.some((p) => p.category.toLowerCase().includes("wood"))
   ) {
     whenToWear.push({
       occasion: "Date night",
@@ -312,5 +456,5 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
   }
   const whenFinal = whenToWear.slice(0, 5);
 
-  return { fragrances: picked, layering: layeringFinal, whenToWear: whenFinal };
+  return { fragrances: pickedFinal, layering: layeringFinal, whenToWear: whenFinal };
 }
