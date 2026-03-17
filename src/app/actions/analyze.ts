@@ -67,6 +67,13 @@ const FALLBACK_ANALYSIS = {
   strengths: ["Diverse selection.", "Room to grow."],
   weaknesses: ["Add more variety over time."],
   missingCategories: ["Fresh", "Woody", "Oriental"] as string[],
+  whoThisSuits: undefined as string | undefined,
+  overallVibe: undefined as string | undefined,
+  howItWears: undefined as string | undefined,
+  bestSeasons: undefined as string[] | undefined,
+  bestOccasions: undefined as string[] | undefined,
+  whyItWorks: undefined as string | undefined,
+  similarFragrances: undefined as string[] | undefined,
 };
 
 /**
@@ -96,6 +103,13 @@ export async function generateCollectionAnalysis(
           strengths: Array.isArray(raw.strengths) && raw.strengths.length > 0 ? raw.strengths.map(String) : FALLBACK_ANALYSIS.strengths,
           weaknesses: Array.isArray(raw.weaknesses) && raw.weaknesses.length > 0 ? raw.weaknesses.map(String) : FALLBACK_ANALYSIS.weaknesses,
           missingCategories: Array.isArray(raw.missingCategories) && raw.missingCategories.length > 0 ? raw.missingCategories.map(String) : FALLBACK_ANALYSIS.missingCategories,
+          whoThisSuits: raw.whoThisSuits?.trim() || undefined,
+          overallVibe: raw.overallVibe?.trim() || undefined,
+          howItWears: raw.howItWears?.trim() || undefined,
+          bestSeasons: raw.bestSeasons?.length ? raw.bestSeasons.map(String) : undefined,
+          bestOccasions: raw.bestOccasions?.length ? raw.bestOccasions.map(String) : undefined,
+          whyItWorks: raw.whyItWorks?.trim() || undefined,
+          similarFragrances: raw.similarFragrances?.length ? raw.similarFragrances.map(String) : undefined,
         }
         : FALLBACK_ANALYSIS;
   } catch (e) {
@@ -156,16 +170,34 @@ export async function generateCollectionAnalysis(
     recommendedFragrances: recs?.recommendedFragrances ?? [],
     layeringSuggestions: recs?.layeringSuggestions ?? [],
     whenToWear: recs?.whenToWear ?? [],
+    whoThisSuits: analysis.whoThisSuits,
+    overallVibe: analysis.overallVibe,
+    howItWears: analysis.howItWears,
+    bestSeasons: analysis.bestSeasons,
+    bestOccasions: analysis.bestOccasions,
+    whyItWorks: analysis.whyItWorks,
+    similarFragrances: analysis.similarFragrances,
   };
 }
 
+/**
+ * Infer a scent-family category from fragrance name and brand for scoring.
+ * Aligned with catalog categories: Fresh, Woody, Floral, Amber, Oriental, and common compound types.
+ */
 function inferCategory(name: string, brand: string): string {
   const t = `${name} ${brand}`.toLowerCase();
-  if (t.includes("fresh") || t.includes("aquatic") || t.includes("citrus")) return "Fresh";
-  if (t.includes("wood") || t.includes("santal") || t.includes("cedar")) return "Woody";
-  if (t.includes("flower") || t.includes("floral") || t.includes("rose")) return "Floral";
-  if (t.includes("amber") || t.includes("vanilla") || t.includes("gourmand")) return "Amber";
-  if (t.includes("oud") || t.includes("spice") || t.includes("oriental")) return "Oriental";
+  if (t.includes("aquatic") || t.includes("marine") || t.includes("sea salt") || t.includes("acqua") || t.includes("ocean")) return "Fresh Aquatic";
+  if (t.includes("citrus") || t.includes("neroli") || t.includes("cedrat") || t.includes("bergamot") || t.includes("orange") || t.includes("lemon") || t.includes("lime")) return "Fresh Citrus";
+  if (t.includes("green") || t.includes("greenley") || t.includes("herbal") || (t.includes("vetiver") && !t.includes("woody"))) return "Green";
+  if (t.includes("fresh") || t.includes("light blue") || t.includes("invictus") || t.includes("bleu") || t.includes("sauvage")) return "Fresh";
+  if (t.includes("wood") || t.includes("santal") || t.includes("cedar") || t.includes("oud wood") || t.includes("sandal") || t.includes("vetiver")) return "Woody";
+  if (t.includes("woody citrus") || t.includes("terre d") || t.includes("hacivat")) return "Woody Citrus";
+  if (t.includes("fresh woody") || t.includes("wood sage")) return "Fresh Woody";
+  if (t.includes("leather") || t.includes("ombre leather")) return "Leather";
+  if (t.includes("flower") || t.includes("floral") || t.includes("rose") || t.includes("iris") || t.includes("jasmine") || t.includes("lily")) return "Floral";
+  if (t.includes("amber") || t.includes("vanilla") || t.includes("gourmand") || t.includes("noir extreme") || t.includes("one million")) return "Amber";
+  if (t.includes("oud") || t.includes("oriental") || t.includes("angel") || t.includes("spice") && (t.includes("oriental") || t.includes("oud"))) return "Oriental";
+  if (t.includes("skin scent") || t.includes("another 13") || t.includes("musk")) return "Skin Scent";
   return "Mixed";
 }
 

@@ -110,31 +110,38 @@ export async function generateAnalysisFromDetections(
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
-      max_tokens: 1024,
+      max_tokens: 1536,
       messages: [
         {
           role: "user",
-          content: `Based on this fragrance collection list (from a photo), write a short analysis. Return only a single JSON object, no other text.
+          content: `You are an expert fragrance consultant writing a personalized, human analysis of a customer's fragrance collection. Sound like a knowledgeable friend—warm, specific, and insightful. Avoid generic fluff; reference the actual bottles where it helps. Write in clear, confident prose. Return only a single JSON object, no other text.
 
 Collection:
 ${listText}
 
-JSON structure (use these exact keys):
+JSON structure (use these exact keys). All keys are required; for arrays use 2-4 items unless the list is empty.
 {
   "scentProfile": {
-    "dominant": "e.g. Woody & Amber",
-    "secondary": "e.g. Fresh Citrus",
-    "accent": "e.g. Floral",
-    "description": "One or two sentences describing their overall scent profile"
+    "dominant": "Main scent family (e.g. Woody & Amber, Fresh Citrus)",
+    "secondary": "Supporting theme",
+    "accent": "Noticeable accent (e.g. Floral, Spicy)",
+    "description": "One or two sentences: what this collection says about their taste. Be specific and human."
   },
-  "strengths": ["strength 1", "strength 2", "strength 3"],
-  "weaknesses": ["weakness 1", "weakness 2"],
-  "missingCategories": ["category 1", "category 2"],
-  "layeringSuggestions": ["suggestion 1", "suggestion 2"],
-  "whenToWear": ["occasion: tip", "occasion: tip"]
+  "strengths": ["2-4 concrete strengths—what they did right"],
+  "weaknesses": ["1-3 gentle, constructive gaps or blind spots"],
+  "missingCategories": ["Scent families or styles they might enjoy adding"],
+  "whoThisSuits": "One sentence: who this collection is for (e.g. 'Someone who likes depth and versatility without sacrificing wearability').",
+  "overallVibe": "One short paragraph: the overall vibe of this collection—mood, personality, how it comes across.",
+  "howItWears": "One or two sentences: how this collection wears in practice—development, longevity, versatility, when it shines.",
+  "bestSeasons": ["2-4 seasons where this collection really works, e.g. Spring, Fall"],
+  "bestOccasions": ["2-4 occasions, e.g. Office, Weekend casual, Date night"],
+  "whyItWorks": "One or two sentences: why this collection works as a whole—balance, coherence, or intentional variety.",
+  "layeringSuggestions": ["2-3 specific layering ideas using their bottles or styles"],
+  "whenToWear": ["2-4 practical tips: occasion or situation + short tip"],
+  "similarFragrances": ["2-4 short suggestions: 'If you like X, try Y' or 'Fans of this collection often enjoy...'"]
 }
 
-Keep each array to 2-4 items. Be concise. If the list is empty or "No specific bottles", still return a generic balanced profile.`,
+If the list is empty or "No specific bottles", still return a complete JSON with a generic, encouraging balanced profile and empty or minimal arrays where needed.`,
         },
       ],
     });
@@ -149,19 +156,29 @@ Keep each array to 2-4 items. Be concise. If the list is empty or "No specific b
       throw new Error("OpenAI analysis: response was not valid JSON with scentProfile.");
     }
 
+    const str = (v: unknown) => (v != null ? String(v).trim() : "");
+    const arr = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : []);
+
     console.log("[upload flow] Step 4: analysis generation call — success");
     return {
       scentProfile: {
-        dominant: String(json.scentProfile.dominant ?? "").trim() || "Mixed",
-        secondary: String(json.scentProfile.secondary ?? "").trim() || "Versatile",
-        accent: String(json.scentProfile.accent ?? "").trim() || "Balanced",
-        description: String(json.scentProfile.description ?? "").trim() || "A balanced collection with room to grow.",
+        dominant: str(json.scentProfile.dominant) || "Mixed",
+        secondary: str(json.scentProfile.secondary) || "Versatile",
+        accent: str(json.scentProfile.accent) || "Balanced",
+        description: str(json.scentProfile.description) || "A balanced collection with room to grow.",
       },
-      strengths: Array.isArray(json.strengths) ? json.strengths.map(String) : [],
-      weaknesses: Array.isArray(json.weaknesses) ? json.weaknesses.map(String) : [],
-      missingCategories: Array.isArray(json.missingCategories) ? json.missingCategories.map(String) : [],
-      layeringSuggestions: Array.isArray(json.layeringSuggestions) ? json.layeringSuggestions.map(String) : [],
-      whenToWear: Array.isArray(json.whenToWear) ? json.whenToWear.map(String) : [],
+      strengths: arr(json.strengths),
+      weaknesses: arr(json.weaknesses),
+      missingCategories: arr(json.missingCategories),
+      layeringSuggestions: arr(json.layeringSuggestions),
+      whenToWear: arr(json.whenToWear),
+      whoThisSuits: str(json.whoThisSuits) || undefined,
+      overallVibe: str(json.overallVibe) || undefined,
+      howItWears: str(json.howItWears) || undefined,
+      bestSeasons: arr(json.bestSeasons).length > 0 ? arr(json.bestSeasons) : undefined,
+      bestOccasions: arr(json.bestOccasions).length > 0 ? arr(json.bestOccasions) : undefined,
+      whyItWorks: str(json.whyItWorks) || undefined,
+      similarFragrances: arr(json.similarFragrances).length > 0 ? arr(json.similarFragrances) : undefined,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "OpenAI analysis failed.";

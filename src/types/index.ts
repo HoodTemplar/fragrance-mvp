@@ -39,6 +39,20 @@ export interface CollectionResult {
   recommendedFragrances: RecommendedFragrance[];
   layeringSuggestions: string[];
   whenToWear: string[];
+  /** Who this collection suits (expert, human sentence). */
+  whoThisSuits?: string;
+  /** Overall vibe of the collection (one short paragraph). */
+  overallVibe?: string;
+  /** How the collection wears in practice. */
+  howItWears?: string;
+  /** Best seasons for this collection. */
+  bestSeasons?: string[];
+  /** Best occasions for this collection. */
+  bestOccasions?: string[];
+  /** Why this collection works (expert summary). */
+  whyItWorks?: string;
+  /** Similar fragrances or "if you like X, try Y" suggestions. */
+  similarFragrances?: string[];
 }
 
 export interface RecommendedFragrance {

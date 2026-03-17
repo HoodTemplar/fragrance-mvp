@@ -104,6 +104,9 @@ export default function CollectionResultsContent({ initialResult, fromUpload }: 
         <section className="mb-12">
           <h2 className="font-serif text-xl text-charcoal mb-2">Scent DNA profile</h2>
           <p className="text-charcoal/60 text-sm mb-4 leading-relaxed">{r.scentProfile.description}</p>
+          {r.whoThisSuits && (
+            <p className="text-charcoal/80 text-sm mb-4 italic">Who this suits: {r.whoThisSuits}</p>
+          )}
           <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
             <div className="p-3 bg-charcoal/5 border border-charcoal/10">
               <dt className="text-charcoal/50 text-xs uppercase tracking-wide">Dominant</dt>
@@ -118,6 +121,41 @@ export default function CollectionResultsContent({ initialResult, fromUpload }: 
               <dd className="font-medium text-charcoal mt-0.5">{r.scentProfile.accent}</dd>
             </div>
           </dl>
+          {r.overallVibe && (
+            <div className="mt-4 p-4 bg-charcoal/5 border border-charcoal/10">
+              <h3 className="text-charcoal/70 text-xs uppercase tracking-wide mb-2">Overall vibe</h3>
+              <p className="text-charcoal/80 text-sm leading-relaxed">{r.overallVibe}</p>
+            </div>
+          )}
+          {r.howItWears && (
+            <div className="mt-4 p-4 bg-charcoal/5 border border-charcoal/10">
+              <h3 className="text-charcoal/70 text-xs uppercase tracking-wide mb-2">How it wears</h3>
+              <p className="text-charcoal/80 text-sm leading-relaxed">{r.howItWears}</p>
+            </div>
+          )}
+          {(r.bestSeasons?.length ?? 0) > 0 && (
+            <div className="mt-4">
+              <h3 className="text-charcoal/70 text-xs uppercase tracking-wide mb-2">Best seasons</h3>
+              <div className="flex flex-wrap gap-2">
+                {r.bestSeasons!.map((s, i) => (
+                  <span key={i} className="px-2.5 py-1 text-sm border border-charcoal/15 text-charcoal/80 bg-white">{s}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {(r.bestOccasions?.length ?? 0) > 0 && (
+            <div className="mt-4">
+              <h3 className="text-charcoal/70 text-xs uppercase tracking-wide mb-2">Best occasions</h3>
+              <div className="flex flex-wrap gap-2">
+                {r.bestOccasions!.map((o, i) => (
+                  <span key={i} className="px-2.5 py-1 text-sm border border-charcoal/15 text-charcoal/80 bg-white">{o}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {r.whyItWorks && (
+            <p className="text-charcoal/80 text-sm mt-4 leading-relaxed"><strong className="text-charcoal">Why it works:</strong> {r.whyItWorks}</p>
+          )}
         </section>
 
         <section className="grid grid-cols-1 sm:grid-cols-2 gap-8 mb-12">
@@ -180,6 +218,20 @@ export default function CollectionResultsContent({ initialResult, fromUpload }: 
             ))}
           </ul>
         </section>
+
+        {(r.similarFragrances?.length ?? 0) > 0 && (
+          <section className="mb-12">
+            <h2 className="font-serif text-xl text-charcoal mb-3">Similar fragrances & you may also like</h2>
+            <ul className="space-y-2">
+              {r.similarFragrances!.map((s, i) => (
+                <li key={i} className="text-sm text-charcoal/80 flex items-start gap-2">
+                  <span className="text-charcoal/40 mt-0.5">·</span>
+                  <span>{s}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className="mb-12">
           <h2 className="font-serif text-xl text-charcoal mb-3">Best times & occasions to wear what you own</h2>
