@@ -1,9 +1,8 @@
 "use client";
 
 /**
- * Recommendations: 5 picks, layering, when to wear.
- * From quiz: reads scent-dna-quiz-result (profile + recommendations) from sessionStorage.
- * From collection: reads scent-dna-collection-result from sessionStorage if present, else mock.
+ * Recommendations: editorial-style layout.
+ * Scent identity moment, then 5 fragrances as feature cards with role-based styling.
  */
 
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -74,7 +73,7 @@ function RecommendationsContent() {
         setProfile(MOCK_QUIZ_RESULT.profile);
         setRecommendations(MOCK_QUIZ_RESULT.recommendations);
         setSaveData(MOCK_QUIZ_RESULT);
-        setSaveType("quiz");
+        setSource("quiz");
       }
       setSource("quiz");
       return;
@@ -107,14 +106,12 @@ function RecommendationsContent() {
       setSaveType("collection");
     }
     setSource("collection");
-  }, []);
+  }, [searchParams]);
 
   const fromQuiz = source === "quiz";
 
   const displayProfile =
-    profile ?? (fromQuiz
-      ? MOCK_QUIZ_RESULT.profile
-      : MOCK_COLLECTION_RESULT.scentProfile);
+    profile ?? (fromQuiz ? MOCK_QUIZ_RESULT.profile : MOCK_COLLECTION_RESULT.scentProfile);
 
   const displayRecs =
     recommendations.length > 0
@@ -123,68 +120,88 @@ function RecommendationsContent() {
         ? MOCK_QUIZ_RESULT.recommendations
         : MOCK_COLLECTION_RESULT.recommendedFragrances;
 
+  const identityTitle = displayProfile?.archetype?.name?.toUpperCase() ?? "Your picks";
+  const identityDescription = displayProfile?.archetype?.characterDescription ?? displayProfile?.description ?? "";
+
   return (
-    <div className="max-w-2xl mx-auto px-4 py-12 md:py-16">
-      <p className="text-charcoal/50 text-sm tracking-wide uppercase mb-2">Recommendations</p>
-      <h1 className="font-serif text-3xl text-charcoal mb-2">Picks for you</h1>
-      <p className="text-charcoal/60 text-sm mb-10">
-        Based on {fromQuiz ? "your quiz" : "your collection"}.
-      </p>
+    <div className="min-h-screen bg-cream text-charcoal">
+      <div className="max-w-2xl mx-auto px-4 py-12 md:py-20 animate-fade-in">
+        {/* Scent identity — editorial moment */}
+        <header className="mb-16 md:mb-20">
+          <p className="text-charcoal/50 text-xs tracking-[0.2em] uppercase mb-4">
+            {fromQuiz ? "Your recommendations" : "Collection recommendations"}
+          </p>
+          <h1 className="font-serif text-3xl md:text-4xl lg:text-5xl font-light tracking-tight text-charcoal mb-6 leading-tight">
+            {identityTitle}
+          </h1>
+          <p className="text-charcoal/75 text-lg leading-relaxed max-w-xl">
+            {identityDescription}
+          </p>
+          {displayProfile && !displayProfile.archetype && (
+            <p className="text-charcoal/50 text-sm mt-4">
+              {displayProfile.dominant} · {displayProfile.accent}
+            </p>
+          )}
+        </header>
 
-      <section className="mb-10 p-4 border border-charcoal/10">
-        <p className="text-charcoal/50 text-xs uppercase tracking-wide mb-1">Your profile</p>
-        <p className="text-charcoal/80 text-sm leading-relaxed">{displayProfile.description}</p>
-        <p className="text-charcoal/50 text-xs mt-2">{displayProfile.dominant} · {displayProfile.accent}</p>
-      </section>
-
-      <section className="mb-10">
-        <h2 className="font-serif text-xl text-charcoal mb-4">5 fragrances to consider next</h2>
-        <ul className="space-y-3">
-          {displayRecs.map((rec, i) => (
-            <RecommendationCard
-              key={rec.id}
-              recommendation={rec}
-              index={i}
-              pageContext="recommendations_page"
-              variant="compact"
-            />
-          ))}
-        </ul>
-      </section>
-
-      {layeringSuggestions.length > 0 && (
-        <section className="mb-10">
-          <h2 className="font-serif text-xl text-charcoal mb-3">Layering suggestions</h2>
-          <ul className="space-y-2">
-            {layeringSuggestions.map((s, i) => (
-              <li key={i} className="text-sm text-charcoal/80 flex items-start gap-2">
-                <span className="text-charcoal/40 mt-0.5">·</span>
-                <span>{s}</span>
-              </li>
+        {/* 5 fragrances — feature cards */}
+        <section className="mb-16">
+          <h2 className="font-serif text-xl text-charcoal/70 mb-8">
+            5 fragrances to consider
+          </h2>
+          <ul className="space-y-6">
+            {displayRecs.map((rec, i) => (
+              <RecommendationCard
+                key={rec.id}
+                recommendation={rec}
+                index={i}
+                pageContext="recommendations_page"
+                variant="editorial"
+              />
             ))}
           </ul>
         </section>
-      )}
 
-      {whenToWear.length > 0 && (
-        <section className="mb-10">
-          <h2 className="font-serif text-xl text-charcoal mb-3">When to wear</h2>
-          <ul className="space-y-2">
-            {whenToWear.map((s, i) => (
-              <li key={i} className="text-sm text-charcoal/80 flex items-start gap-2">
-                <span className="text-charcoal/40 mt-0.5">·</span>
-                <span>{s}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <div className="flex gap-4 mt-10 pt-6">
-        {saveData && (
-          <SaveResultButton type={saveType} data={saveData} />
+        {/* Layering — minimal */}
+        {layeringSuggestions.length > 0 && (
+          <section className="mb-12 pt-8 border-t border-charcoal/10">
+            <h2 className="font-serif text-lg text-charcoal mb-4">Layering ideas</h2>
+            <ul className="space-y-3">
+              {layeringSuggestions.map((s, i) => (
+                <li key={i} className="text-charcoal/80 text-sm leading-relaxed flex items-start gap-3">
+                  <span className="text-gold mt-0.5">·</span>
+                  <span>{s}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
-        <Link href="/" className="px-5 py-2.5 border border-charcoal/20 text-charcoal text-sm hover:bg-charcoal/5 transition-colors">Home</Link>
+
+        {/* When to wear — minimal */}
+        {whenToWear.length > 0 && (
+          <section className="mb-12 pt-8 border-t border-charcoal/10">
+            <h2 className="font-serif text-lg text-charcoal mb-4">When to wear</h2>
+            <ul className="space-y-3">
+              {whenToWear.map((s, i) => (
+                <li key={i} className="text-charcoal/80 text-sm leading-relaxed flex items-start gap-3">
+                  <span className="text-gold mt-0.5">·</span>
+                  <span>{s}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* CTAs */}
+        <div className="flex flex-wrap gap-4 pt-8 border-t border-charcoal/10">
+          {saveData && <SaveResultButton type={saveType} data={saveData} />}
+          <Link
+            href="/"
+            className="px-5 py-2.5 border border-charcoal/20 text-charcoal text-sm rounded-lg hover:bg-charcoal/5 transition-colors"
+          >
+            Home
+          </Link>
+        </div>
       </div>
     </div>
   );
@@ -192,7 +209,13 @@ function RecommendationsContent() {
 
 export default function RecommendationsPage() {
   return (
-    <Suspense fallback={<div className="max-w-2xl mx-auto px-4 py-12 text-charcoal/60 text-sm">Loading…</div>}>
+    <Suspense
+      fallback={
+        <div className="max-w-2xl mx-auto px-4 py-12 text-charcoal/60 text-sm">
+          Loading…
+        </div>
+      }
+    >
       <RecommendationsContent />
     </Suspense>
   );

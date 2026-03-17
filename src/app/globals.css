@@ -6,12 +6,77 @@
   --cream: #F5F0E8;
   --charcoal: #1A1917;
   --gold: #C9A962;
+  /* Dynamic theme (set by quiz / context) */
+  --theme-bg: #1A1917;
+  --theme-bg-end: #2d2a26;
+  --theme-text: #F5F0E8;
+  --theme-text-muted: rgba(245, 240, 232, 0.7);
+  --theme-accent: #C9A962;
+  --theme-card: rgba(245, 240, 232, 0.06);
+  --theme-card-hover: rgba(245, 240, 232, 0.12);
+  --theme-border: rgba(245, 240, 232, 0.12);
+}
+
+/* Theme: fresh — light, airy */
+[data-theme="fresh"] {
+  --theme-bg: #e8f0f4;
+  --theme-bg-end: #d4e4ec;
+  --theme-text: #1a2529;
+  --theme-text-muted: rgba(26, 37, 41, 0.75);
+  --theme-accent: #5a8a9e;
+  --theme-card: rgba(255, 255, 255, 0.7);
+  --theme-card-hover: rgba(255, 255, 255, 0.95);
+  --theme-border: rgba(26, 37, 41, 0.1);
+}
+
+/* Theme: warm — amber, soft glow */
+[data-theme="warm"] {
+  --theme-bg: #2c2419;
+  --theme-bg-end: #3d3225;
+  --theme-text: #F5F0E8;
+  --theme-text-muted: rgba(245, 240, 232, 0.75);
+  --theme-accent: #d4a853;
+  --theme-card: rgba(245, 240, 232, 0.06);
+  --theme-card-hover: rgba(245, 240, 232, 0.12);
+  --theme-border: rgba(212, 168, 83, 0.2);
 }
 
 body {
-  @apply bg-cream text-charcoal antialiased;
+  @apply antialiased;
+  background-color: var(--cream);
+  color: var(--charcoal);
 }
 
 html {
   scroll-behavior: smooth;
+}
+
+/* Smooth theme transition */
+[data-theme-transition] {
+  transition: background-color 0.8s ease, color 0.5s ease;
+}
+
+/* Answer cards: hover (scale + glow) and transition timing */
+.quiz-answer-card {
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.2s ease;
+}
+.quiz-answer-card:hover {
+  transform: scale(1.03);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15), 0 16px 48px -16px rgba(0, 0, 0, 0.35);
+}
+.quiz-answer-card.quiz-answer-card-selected {
+  box-shadow: 0 0 0 2px var(--theme-accent), 0 0 32px -8px rgba(201, 169, 98, 0.4);
+}
+
+/* Progress bar elegance */
+.quiz-progress-track {
+  background: var(--theme-border);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+.quiz-progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, var(--theme-accent), var(--theme-accent));
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }

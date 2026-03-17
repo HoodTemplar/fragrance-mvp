@@ -55,6 +55,9 @@ export interface CollectionResult {
   similarFragrances?: string[];
 }
 
+/** Role used for editorial display (engine returns one per role in order). */
+export type RecommendationRole = "SAFE" | "BOLD" | "NICHE" | "VERSATILE" | "WILDCARD";
+
 export interface RecommendedFragrance {
   id: string;
   name: string;
@@ -65,6 +68,8 @@ export interface RecommendedFragrance {
   isSponsored?: boolean;
   /** Optional. When set, clicks are attributed to this sponsor slot (for billing/analytics). */
   sponsorSlotId?: string;
+  /** Optional. For editorial UI: visual style per role (inferred by index if not set). */
+  role?: RecommendationRole;
 }
 
 export interface QuizAnswer {
