@@ -1,6 +1,7 @@
 /**
  * Rule-based recommendation engine.
  * Picks 5 fragrances, 2–3 layering ideas, and when-to-wear from catalog using gaps, strengths, and quiz.
+ * Uses structured fragrance and user preference profiles for trait alignment and human explanations.
  */
 
 import {
@@ -18,6 +19,9 @@ import type {
   LayeringSuggestionRaw,
   WhenToWearRaw,
 } from "./types";
+import { getFragranceProfile } from "./fragranceProfile";
+import { getUserPreferenceProfile } from "./userPreferenceProfile";
+import { buildRecommendationExplanation } from "./explanationBuilder";
 
 const BUDGET_MAP: Record<string, BudgetTier> = {
   budget: "budget",
@@ -36,6 +40,10 @@ const SCORE_PROJECTION = 4;
 const SCORE_LONGEVITY = 4;
 const SCORE_STYLE_CLUSTER = 10;
 const SCORE_PRICE_TIER = 8;
+/** Max points from trait alignment (user vs fragrance profile). */
+const SCORE_ALIGNMENT_MAX = 40;
+/** Penalty when user avoids sweet and fragrance is sweet. */
+const PENALTY_AVOID_SWEET = 50;
 
 /** Quiz q1 (family) -> style clusters that match (e.g. fresh -> fresh-clean). */
 const FAMILY_STYLE_CLUSTERS: Record<string, StyleCluster[]> = {
@@ -176,6 +184,16 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     : (BUDGET_PRICE_TIERS[budgetFromQuiz] ?? BUDGET_PRICE_TIERS.mid);
 
   const catalog = input.catalog ?? FRAGRANCE_CATALOG;
+  const avoidSweet = input.avoidSweet ?? false;
+
+  const userPrefProfile = getUserPreferenceProfile({
+    family,
+    occasion,
+    vibe: userVibe,
+    avoidSweet,
+    projection: userProjection,
+  });
+
   const candidates = catalog.filter((f) => !alreadyOwned(detectedFragrances, f));
 
   const score = (f: CatalogFragrance): number => {
@@ -190,6 +208,16 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     if (userPreferredStyleClusters.length > 0 && userPreferredStyleClusters.includes(f.styleCluster)) s += SCORE_STYLE_CLUSTER;
     if (userPreferredPriceTiers.length > 0 && userPreferredPriceTiers.includes(f.priceTier)) s += SCORE_PRICE_TIER;
     if (missingCategories.length > 0 && categoryMatchesGap(f.category, missingCategories)) s += 5;
+
+    const fragProfile = getFragranceProfile(f);
+    if (avoidSweet && fragProfile.sweetness > 50) s -= PENALTY_AVOID_SWEET;
+
+    const alignment =
+      (["freshness", "warmth", "sweetness", "woodiness", "spice", "cleanliness", "sensuality", "versatility"] as const).reduce(
+        (sum, key) => sum + Math.max(0, 5 - Math.abs(userPrefProfile[key] - fragProfile[key]) / 20),
+        0
+      );
+    s += Math.min(SCORE_ALIGNMENT_MAX, Math.round(alignment));
     return s;
   };
 
@@ -202,16 +230,20 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
   const picked: PickedFragrance[] = [];
   const usedIds = new Set<string>();
 
+  const userContext = {
+    family,
+    occasion,
+    vibe: userVibe ?? "",
+    userProjection: userProjection ?? undefined,
+    missingCategories,
+  };
+
   for (const { f } of shuffled) {
     if (picked.length >= 5) break;
     if (usedIds.has(f.id)) continue;
     usedIds.add(f.id);
-    let reason = "Fits your profile.";
-    if (missingCategories.length > 0 && categoryMatchesGap(f.category, missingCategories)) reason = `Fills a gap: ${f.category}.`;
-    else if (family === "fresh" && (f.category.toLowerCase().includes("fresh") || f.category.toLowerCase().includes("aquatic"))) reason = "Matches your preference for fresh, clean scents.";
-    else if (family === "woody") reason = "Deepens your woody range with a different take.";
-    else if (occasion === "daily" && f.occasions.includes("office")) reason = "Ideal for daily and office wear.";
-    else if (occasion === "date" && f.occasions.includes("date")) reason = "Strong option for date night.";
+    const fragProfile = getFragranceProfile(f);
+    const reason = buildRecommendationExplanation(userContext, f, fragProfile);
     picked.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason });
   }
 
@@ -219,7 +251,9 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     const next = candidates.find((f) => !usedIds.has(f.id));
     if (!next) break;
     usedIds.add(next.id);
-    picked.push({ id: next.id, name: next.name, brand: next.brand, category: next.category, reason: "A versatile addition to consider." });
+    const fragProfile = getFragranceProfile(next);
+    const reason = buildRecommendationExplanation(userContext, next, fragProfile);
+    picked.push({ id: next.id, name: next.name, brand: next.brand, category: next.category, reason });
   }
 
   const layering: LayeringSuggestionRaw[] = [];

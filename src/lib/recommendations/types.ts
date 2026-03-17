@@ -27,6 +27,8 @@ export interface RecommendationInput {
   userPreferredPriceTiers?: string[];
   /** Optional fragrance catalog (e.g. from Supabase). If omitted, engine uses local fragranceCatalog.ts. */
   catalog?: CatalogFragrance[];
+  /** When true, penalise high-sweetness fragrances (from quiz "what ruins a fragrance" = too sweet). */
+  avoidSweet?: boolean;
 }
 
 /** One fragrance pick from the engine (before AI polish adds the note) */

@@ -205,6 +205,7 @@ export async function getRecommendationsForQuiz(
     userPreferredSeasons: enginePreferences.userPreferredSeasons,
     userProjection: enginePreferences.userProjection,
     catalog: catalog && catalog.length > 0 ? catalog : undefined,
+    avoidSweet: quizAnswers.q7 === "turnoff_sweet",
   });
   const polished = await polishRecommendationCopy(engineOutput);
   const recs = polished ?? buildPolishedFromRaw(engineOutput);
