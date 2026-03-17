@@ -53,8 +53,12 @@ const PENALTY_GENDER_MISMATCH = 18;
 const PENALTY_PROJECTION_OPPOSITE = 8;
 const PENALTY_LONGEVITY_OPPOSITE = 4;
 
-/** Size of scored candidate pool (top N by score) before diversity selection. */
-const CANDIDATE_POOL_SIZE = 75;
+/** Size of scored candidate pool (top N by score) for role-based selection. */
+const CANDIDATE_POOL_SIZE = 100;
+
+/** Recommendation roles: one fragrance per role for a curated set of 5. */
+type RecommendationRole = "SAFE" | "BOLD" | "NICHE" | "VERSATILE" | "WILDCARD";
+const RECOMMENDATION_ROLES: RecommendationRole[] = ["SAFE", "BOLD", "NICHE", "VERSATILE", "WILDCARD"];
 
 /** Quiz q1 (family) -> style clusters that match (e.g. fresh -> fresh-clean). */
 const FAMILY_STYLE_CLUSTERS: Record<string, StyleCluster[]> = {
@@ -284,11 +288,6 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
   const pool = withScores.slice(0, poolSize);
 
   type Scored = (typeof pool)[number];
-  const usedIds = new Set<string>();
-  const usedBrands = new Set<string>();
-  const usedClusters = new Set<string>();
-  const picked: PickedFragrance[] = [];
-
   const userContext = {
     family,
     occasion,
@@ -297,84 +296,162 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     missingCategories,
   };
 
-  type DiversitySlot = "safe" | "bold" | "niche" | "versatile" | "standout";
-  const slotOrder: DiversitySlot[] = ["safe", "versatile", "bold", "niche", "standout"];
+  const fragProfileCache = new Map<string, ReturnType<typeof getFragranceProfile>>();
+  function getCachedProfile(f: CatalogFragrance) {
+    if (!fragProfileCache.has(f.id)) fragProfileCache.set(f.id, getFragranceProfile(f));
+    return fragProfileCache.get(f.id)!;
+  }
 
-  function slotFor(f: CatalogFragrance, fragProfile: ReturnType<typeof getFragranceProfile>): DiversitySlot {
+  /**
+   * Role-based selection: one fragrance per role (SAFE, BOLD, NICHE, VERSATILE, WILDCARD).
+   * Roles are assigned by scoring each fragrance on role-specific attributes (projection, longevity,
+   * style_cluster, vibe, price_tier, versatility). For each role we pick the best-fitting fragrance
+   * from the pool that isn't already picked and isn't too similar to others. Unfilled roles are
+   * backfilled from the next best by main score so the final list is always 5 unique, diverse picks.
+   */
+
+  /** Role scores 0–100 per role; used to pick the best fragrance for each recommendation role. */
+  function computeRoleScores(f: CatalogFragrance, fragProfile: ReturnType<typeof getFragranceProfile>): Record<RecommendationRole, number> {
+    const proj = normalize(f.projection ?? "");
+    const long = normalize(f.longevity ?? "");
     const cluster = f.styleCluster;
     const occasions = f.occasions ?? [];
-    const versatile = occasions.length >= 3 && fragProfile.versatility >= 50;
-    const isNiche = f.priceTier === "niche" || f.priceTier === "ultra-niche";
-    const isBold = ["date-night", "spicy-oriental", "dark-woody"].includes(cluster);
-    const isSafe = ["daily-office", "fresh-clean"].includes(cluster) || fragProfile.versatility >= 60;
+    const seasons = f.seasons ?? [];
+    const vibe = normalize(f.vibe ?? "");
+    const isNichePrice = f.priceTier === "niche" || f.priceTier === "ultra-niche";
+    const isNicheBrand = f.designerNiche === "niche";
+    const accords = (f.accords ?? []).map((a) => normalize(a));
 
-    if (isSafe && !isBold) return "safe";
-    if (isBold) return "bold";
-    if (isNiche) return "niche";
-    if (versatile) return "versatile";
-    return "standout";
+    let safe = 0;
+    if (["daily-office", "fresh-clean"].includes(cluster)) safe += 35;
+    if (fragProfile.versatility >= 50) safe += 25;
+    if (occasions.length >= 3) safe += 15;
+    if (proj === "moderate" || proj === "intimate") safe += 15;
+    if (f.priceTier === "designer" || f.priceTier === "luxury") safe += 10;
+
+    let bold = 0;
+    if (proj === "strong" || proj === "bold") bold += 30;
+    if (long === "long") bold += 20;
+    if (["date-night", "spicy-oriental", "dark-woody"].includes(cluster)) bold += 25;
+    if (/bold|seductive|intense|powerful|opulent/.test(vibe)) bold += 25;
+
+    let niche = 0;
+    if (isNichePrice) niche += 35;
+    if (isNicheBrand) niche += 25;
+    if (cluster === "luxury-niche") niche += 25;
+    if (/artistic|unique|refined|opulent/.test(vibe)) niche += 15;
+
+    let versatile = 0;
+    if (occasions.length >= 3) versatile += 25;
+    if (seasons.length >= 2) versatile += 20;
+    if (fragProfile.versatility >= 60) versatile += 30;
+    if (accords.length >= 3) versatile += 25;
+
+    let wildcard = 0;
+    const primaryRoleScore = Math.max(safe, bold, niche, versatile);
+    if (primaryRoleScore < 60) wildcard += 40;
+    if (accords.some((a) => /oud|incense|leather|unusual|smoky/.test(a))) wildcard += 25;
+    if (fragProfile.versatility >= 40 && fragProfile.versatility <= 70) wildcard += 20;
+    wildcard += Math.min(15, accords.length * 3);
+
+    return {
+      SAFE: Math.min(100, safe),
+      BOLD: Math.min(100, bold),
+      NICHE: Math.min(100, niche),
+      VERSATILE: Math.min(100, versatile),
+      WILDCARD: Math.min(100, wildcard),
+    };
   }
 
-  function pickBestForSlot(slot: DiversitySlot, from: Scored[]): Scored | null {
-    const fragProfiles = new Map<string, ReturnType<typeof getFragranceProfile>>();
-    const remaining = from.filter(({ f }) => !usedIds.has(f.id));
-    for (const { f } of remaining) {
-      if (!fragProfiles.has(f.id)) fragProfiles.set(f.id, getFragranceProfile(f));
+  /** True if f is too similar to any already-picked (same brand+cluster, or same category + heavy accord overlap). */
+  function isTooSimilar(f: CatalogFragrance, pickedSoFar: CatalogFragrance[]): boolean {
+    const fAccords = new Set((f.accords ?? []).map((a) => normalize(a)));
+    const fCat = normalize(f.category ?? "");
+    for (const p of pickedSoFar) {
+      if (p.brand === f.brand && p.styleCluster === f.styleCluster) return true;
+      const pCat = normalize(p.category ?? "");
+      if (fCat === pCat) {
+        const pAccords = (p.accords ?? []).map((a) => normalize(a));
+        const overlap = pAccords.filter((a) => fAccords.has(a)).length;
+        if (overlap >= 2) return true;
+      }
     }
-    const withSlots = remaining.map((scored) => ({
-      scored,
-      slot: slotFor(scored.f, fragProfiles.get(scored.f.id)!),
-    }));
-    const forSlot = withSlots.filter((x) => x.slot === slot);
-    if (forSlot.length === 0) return null;
-    forSlot.sort((a, b) => {
-      const preferNewBrand = (s: Scored) => (usedBrands.has(s.f.brand) ? 0 : 1);
-      const preferNewCluster = (s: Scored) => (usedClusters.has(s.f.styleCluster) ? 0 : 1);
+    return false;
+  }
+
+  function canonicalKey(p: { brand: string; name: string }): string {
+    return `${normalize(p.brand)}|${normalize(p.name)}`;
+  }
+
+  const usedIds = new Set<string>();
+  const usedKeys = new Set<string>();
+  const pickedFragrances: CatalogFragrance[] = [];
+  const picked: PickedFragrance[] = [];
+  const maxMainScore = pool.length ? Math.max(...pool.map((x) => x.s)) : 0;
+  const minMainScore = pool.length ? Math.min(...pool.map((x) => x.s)) : 0;
+  const mainScoreRange = Math.max(1, maxMainScore - minMainScore);
+
+  for (const role of RECOMMENDATION_ROLES) {
+    const available = pool.filter(
+      ({ f }) =>
+        !usedIds.has(f.id) &&
+        !usedKeys.has(canonicalKey(f)) &&
+        !isTooSimilar(f, pickedFragrances)
+    );
+    if (available.length === 0) continue;
+
+    const withRoleScores = available.map((scored) => {
+      const profile = getCachedProfile(scored.f);
+      const roleScores = computeRoleScores(scored.f, profile);
+      const roleScore = roleScores[role];
+      const normalizedMain = (scored.s - minMainScore) / mainScoreRange;
+      const combined = roleScore * 0.6 + normalizedMain * 100 * 0.4;
+      return { scored, roleScore, combined, mainScore: scored.s };
+    });
+
+    const usedBrandsSoFar = new Set(pickedFragrances.map((x) => x.brand));
+    withRoleScores.sort((a, b) => {
+      if (Math.abs(a.combined - b.combined) > 1) return b.combined - a.combined;
+      const preferNewBrand = (sc: Scored) => (usedBrandsSoFar.has(sc.f.brand) ? 0 : 1);
       const brandDiff = preferNewBrand(b.scored) - preferNewBrand(a.scored);
       if (brandDiff !== 0) return brandDiff;
-      const clusterDiff = preferNewCluster(b.scored) - preferNewCluster(a.scored);
-      if (clusterDiff !== 0) return clusterDiff;
-      return b.scored.s - a.scored.s;
+      return b.mainScore - a.mainScore;
     });
-    return forSlot[0].scored;
-  }
 
-  for (const slot of slotOrder) {
-    if (picked.length >= 5) break;
-    const best = pickBestForSlot(slot, pool);
-    if (best) {
-      usedIds.add(best.f.id);
-      usedBrands.add(best.f.brand);
-      usedClusters.add(best.f.styleCluster);
-      const fragProfile = getFragranceProfile(best.f);
-      const reason = buildRecommendationExplanation(userContext, best.f, fragProfile);
-      picked.push({ id: best.f.id, name: best.f.name, brand: best.f.brand, category: best.f.category, reason });
+    const best = withRoleScores[0];
+    if (best && best.roleScore >= 20) {
+      const { f } = best.scored;
+      usedIds.add(f.id);
+      usedKeys.add(canonicalKey(f));
+      pickedFragrances.push(f);
+      const reason = buildRecommendationExplanation(userContext, f, getCachedProfile(f));
+      picked.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason });
     }
   }
 
-  const shuffledPool = shuffle([...pool]);
-  for (const { f } of shuffledPool) {
+  for (const { f } of pool) {
     if (picked.length >= 5) break;
-    if (usedIds.has(f.id)) continue;
+    if (usedIds.has(f.id) || usedKeys.has(canonicalKey(f)) || isTooSimilar(f, pickedFragrances)) continue;
     usedIds.add(f.id);
-    const fragProfile = getFragranceProfile(f);
-    const reason = buildRecommendationExplanation(userContext, f, fragProfile);
+    usedKeys.add(canonicalKey(f));
+    pickedFragrances.push(f);
+    const reason = buildRecommendationExplanation(userContext, f, getCachedProfile(f));
     picked.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason });
   }
 
   while (picked.length < 5 && candidates.length > 0) {
-    const next = candidates.find((f) => !usedIds.has(f.id));
+    const next = candidates.find(
+      (f) => !usedIds.has(f.id) && !usedKeys.has(canonicalKey(f)) && !isTooSimilar(f, pickedFragrances)
+    );
     if (!next) break;
     usedIds.add(next.id);
-    const fragProfile = getFragranceProfile(next);
-    const reason = buildRecommendationExplanation(userContext, next, fragProfile);
+    usedKeys.add(canonicalKey(next));
+    pickedFragrances.push(next);
+    const reason = buildRecommendationExplanation(userContext, next, getCachedProfile(next));
     picked.push({ id: next.id, name: next.name, brand: next.brand, category: next.category, reason });
   }
 
   // Deduplicate by id and by (brand, name) so the same fragrance never appears twice (e.g. catalog has "naxos" and "xerjoff-naxos")
-  function canonicalKey(p: { brand: string; name: string }): string {
-    return `${normalize(p.brand)}|${normalize(p.name)}`;
-  }
   const seenIds = new Set<string>();
   const seenKeys = new Set<string>();
   const unique: PickedFragrance[] = [];
