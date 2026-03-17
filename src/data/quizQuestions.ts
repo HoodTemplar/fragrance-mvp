@@ -1,6 +1,6 @@
 /**
- * Scent DNA quiz — 10 questions. Premium copy.
- * Covers: scent family, fresh/sweet/woody/spicy, occasion, budget, designer vs niche.
+ * Scent DNA quiz — 9 questions. Cinematic, consultation-style.
+ * Each question captures hidden preference signals for the recommendation engine.
  */
 
 export interface QuizQuestion {
@@ -12,107 +12,100 @@ export interface QuizQuestion {
 export const QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "q1",
-    question: "Which scent family speaks to you most?",
+    question: "Where does your energy feel most at home?",
     options: [
-      { value: "fresh", label: "Fresh — citrus, green, aquatic" },
-      { value: "sweet", label: "Sweet — gourmand, vanilla, amber" },
-      { value: "woody", label: "Woody — sandalwood, cedar, vetiver" },
-      { value: "spicy", label: "Spicy — pepper, incense, oud" },
+      { value: "paris_coffee", label: "A small, undiscovered coffee shop in Paris — espresso and warm pastries in the air" },
+      { value: "soho_gallery", label: "A modern art gallery in SoHo — quiet sophistication and clean lines" },
+      { value: "mediterranean", label: "A bright Mediterranean beach morning — salt air and citrus nearby" },
+      { value: "rooftop_night", label: "A rooftop bar overlooking the city at night — music and glowing lights" },
+      { value: "rainy_bookstore", label: "A quiet bookstore on a rainy afternoon — wood shelves and old paper" },
     ],
   },
   {
     id: "q2",
-    question: "When do you reach for fragrance most?",
+    question: "Which description feels closest to how you present yourself?",
     options: [
-      { value: "daily", label: "Daily — office, errands, everyday" },
-      { value: "nightlife", label: "Nightlife — evenings out, parties" },
-      { value: "date", label: "Date night — intimate, memorable" },
-      { value: "all", label: "All of the above" },
+      { value: "clean_minimal", label: "Clean, minimal, and refined" },
+      { value: "classic_polished", label: "Classic and polished" },
+      { value: "bold_fashion", label: "Bold and fashion-forward" },
+      { value: "creative_unconventional", label: "Creative and unconventional" },
+      { value: "relaxed_effortless", label: "Relaxed and effortless" },
     ],
   },
   {
     id: "q3",
-    question: "How do you like your scent to feel?",
+    question: "When someone notices your fragrance, what reaction would you love most?",
     options: [
-      { value: "light", label: "Light and transparent" },
-      { value: "warm", label: "Warm and enveloping" },
-      { value: "bold", label: "Bold and statement-making" },
-      { value: "balanced", label: "Balanced — noticeable but not loud" },
+      { value: "impression_clean", label: "\"They smell incredibly clean and put together.\"" },
+      { value: "impression_intriguing", label: "\"That scent is intriguing.\"" },
+      { value: "impression_attractive", label: "\"That smells incredibly attractive.\"" },
+      { value: "impression_expensive", label: "\"That smells expensive.\"" },
+      { value: "impression_fresh", label: "\"That smells fresh and uplifting.\"" },
     ],
   },
   {
     id: "q4",
-    question: "What’s your budget for a new bottle?",
+    question: "How noticeable should your fragrance be?",
     options: [
-      { value: "budget", label: "Under $60" },
-      { value: "mid", label: "$60 – $150" },
-      { value: "luxe", label: "$150 – $300" },
-      { value: "niche", label: "$300+ — I invest in niche" },
+      { value: "presence_aura", label: "Barely noticeable — like a personal aura" },
+      { value: "presence_subtle", label: "Subtle but present" },
+      { value: "presence_memorable", label: "Noticeable and memorable" },
+      { value: "presence_bold", label: "Bold and unmistakable" },
     ],
   },
   {
     id: "q5",
-    question: "Designer or niche?",
+    question: "Where do you most imagine wearing your ideal fragrance?",
     options: [
-      { value: "designer", label: "Designer — established houses, wide appeal" },
-      { value: "niche", label: "Niche — artisanal, distinctive" },
-      { value: "both", label: "Both — I choose by scent, not label" },
+      { value: "context_everyday", label: "Everyday life" },
+      { value: "context_professional", label: "Professional settings" },
+      { value: "context_dates", label: "Dates and evenings" },
+      { value: "context_special", label: "Special occasions" },
+      { value: "context_nightlife", label: "Nightlife and social events" },
     ],
   },
   {
     id: "q6",
-    question: "How do you feel about sweet notes?",
+    question: "Which weather feels most natural to you?",
     options: [
-      { value: "love", label: "I love them — vanilla, tonka, caramel" },
-      { value: "subtle", label: "Only when subtle and refined" },
-      { value: "avoid", label: "I prefer dry or fresh over sweet" },
+      { value: "climate_summer", label: "Hot, sunny weather" },
+      { value: "climate_spring", label: "Breezy spring weather" },
+      { value: "climate_autumn", label: "Crisp autumn weather" },
+      { value: "climate_winter", label: "Cold winter nights" },
+      { value: "climate_all", label: "A mix of everything" },
     ],
   },
   {
     id: "q7",
-    question: "One signature or a rotation?",
+    question: "What ruins a fragrance for you?",
     options: [
-      { value: "signature", label: "One signature — my scent" },
-      { value: "rotation", label: "A small rotation by mood" },
-      { value: "collection", label: "A collection — I like variety" },
+      { value: "turnoff_sweet", label: "Too sweet" },
+      { value: "turnoff_powdery", label: "Too powdery" },
+      { value: "turnoff_heavy", label: "Too heavy" },
+      { value: "turnoff_sharp", label: "Too sharp" },
+      { value: "turnoff_loud", label: "Too loud" },
     ],
   },
   {
     id: "q8",
-    question: "Where do you want your scent to take you?",
+    question: "Which scent style sounds most appealing?",
     options: [
-      { value: "clean", label: "Clean, polished, put-together" },
-      { value: "seductive", label: "Seductive, memorable" },
-      { value: "adventurous", label: "Adventurous, unexpected" },
-      { value: "timeless", label: "Timeless, classic" },
+      { value: "scent_citrus_woods", label: "Bright citrus and woods" },
+      { value: "scent_musk_floral", label: "Clean musks and soft florals" },
+      { value: "scent_amber_spice", label: "Warm amber and spice" },
+      { value: "scent_smoky_incense", label: "Smoky woods and incense" },
+      { value: "scent_vanilla_warmth", label: "Creamy vanilla and warmth" },
+      { value: "scent_green_fresh", label: "Fresh green aromatics" },
     ],
   },
   {
     id: "q9",
-    question: "How long should it last?",
+    question: "Which fragrance style direction feels closest to you?",
     options: [
-      { value: "short", label: "A few hours — I like to reapply" },
-      { value: "day", label: "All day — set and forget" },
-      { value: "trail", label: "Long-lasting — I want a trail" },
-    ],
-  },
-  {
-    id: "q10",
-    question: "What best describes your fragrance journey?",
-    options: [
-      { value: "beginner", label: "Just beginning — finding my way" },
-      { value: "curious", label: "Curious — I know what I like and want more" },
-      { value: "enthusiast", label: "Enthusiast — I live and breathe scent" },
-    ],
-  },
-  {
-    id: "q11",
-    question: "What type of fragrances do you prefer?",
-    options: [
-      { value: "masculine", label: "Masculine" },
-      { value: "feminine", label: "Feminine" },
-      { value: "unisex", label: "Unisex" },
-      { value: "open", label: "Open — I like any" },
+      { value: "gender_masculine", label: "Traditionally masculine leaning" },
+      { value: "gender_feminine", label: "Traditionally feminine leaning" },
+      { value: "gender_unisex", label: "Modern unisex balance" },
+      { value: "gender_open", label: "Open to anything interesting" },
     ],
   },
 ];

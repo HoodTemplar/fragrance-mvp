@@ -171,23 +171,39 @@ function inferCategory(name: string, brand: string): string {
 
 /**
  * Get recommendations for quiz-only flow (no collection). Uses same rule-based engine + AI polish.
+ * Maps new quiz answers (q1–q9) to engine-ready preferences before calling the engine.
  */
 export async function getRecommendationsForQuiz(
   quizAnswers: Record<string, string>
 ): Promise<{ recommendedFragrances: CollectionResult["recommendedFragrances"]; layeringSuggestions: string[]; whenToWear: string[] }> {
+  const { mapQuizAnswersToEngine } = await import("@/lib/quizToEngineMap");
+  const enginePreferences = mapQuizAnswersToEngine(quizAnswers);
+
   const catalog = await getFragranceCatalogFromSupabase();
   if (catalog && catalog.length > 0) {
     console.log("[recommendations] Loaded", catalog.length, "fragrances from Supabase.");
   } else {
     console.log("[recommendations] Using fallback catalog (fragranceCatalog.ts).");
   }
+  const quizAnswersForEngine: Record<string, string> = {
+    q1: enginePreferences.q1,
+    q2: enginePreferences.q2,
+    q3: enginePreferences.q3,
+    q4: enginePreferences.q4,
+    q5: enginePreferences.q5,
+    q8: enginePreferences.q8,
+    q9: enginePreferences.q9,
+    q11: enginePreferences.q11,
+  };
   const engineOutput = runRecommendationEngine({
     detectedFragrances: [],
     missingCategories: ["Fresh", "Woody", "Floral", "Amber", "Oriental"],
     strengths: [],
     weaknesses: [],
-    quizAnswers,
-    genderPreference: (quizAnswers.q11 ?? "open") as "masculine" | "feminine" | "unisex" | "open",
+    quizAnswers: quizAnswersForEngine,
+    genderPreference: enginePreferences.q11,
+    userPreferredSeasons: enginePreferences.userPreferredSeasons,
+    userProjection: enginePreferences.userProjection,
     catalog: catalog && catalog.length > 0 ? catalog : undefined,
   });
   const polished = await polishRecommendationCopy(engineOutput);

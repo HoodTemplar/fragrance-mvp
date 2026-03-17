@@ -2,10 +2,12 @@
 
 /**
  * Submit quiz answers, optionally save to Supabase, and return the generated scent profile + rule-based recommendations.
+ * Stores raw answers (q1–q9) and structured quizPreferences (engine-ready mapping) in result_data.
  */
 
 import { createClient } from "@/lib/supabase/server";
 import { generateScentProfile } from "@/lib/quizProfile";
+import { mapQuizAnswersToEngine } from "@/lib/quizToEngineMap";
 import { getRecommendationsForQuiz } from "@/app/actions/analyze";
 import type { ScentProfile } from "@/types";
 import type { RecommendedFragrance } from "@/types";
@@ -53,9 +55,11 @@ export async function submitQuiz(
       }
     }
 
+    const quizPreferences = mapQuizAnswersToEngine(answers);
     const resultData = {
       profile,
       answers,
+      quizPreferences,
       generatedAt: new Date().toISOString(),
     };
 

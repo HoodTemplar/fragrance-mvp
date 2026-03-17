@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Scent DNA quiz — 10 questions. Premium styling. Saves to Supabase when signed in.
+ * Scent DNA quiz — 9 questions. Premium, consultation-style flow.
+ * Card-style answers, smooth progress, light transition between questions.
  */
 
 import { useState } from "react";
@@ -18,6 +19,7 @@ function makeSessionId() {
 }
 
 const QUIZ_RESULT_KEY = "scent-dna-quiz-result";
+const TOTAL = QUIZ_QUESTIONS.length;
 
 export default function QuizPage() {
   const router = useRouter();
@@ -28,7 +30,8 @@ export default function QuizPage() {
   const [sessionId] = useState(() => makeSessionId());
 
   const current = QUIZ_QUESTIONS[step];
-  const isLast = step === QUIZ_QUESTIONS.length - 1;
+  const isLast = step === TOTAL - 1;
+  const progressPct = ((step + 1) / TOTAL) * 100;
 
   function handleSelect(value: string) {
     setAnswers((prev) => ({ ...prev, [current.id]: value }));
@@ -47,7 +50,7 @@ export default function QuizPage() {
           return;
         }
         if (typeof window !== "undefined") {
-          sessionStorage.setItem("scent-dna-quiz-result", JSON.stringify({
+          sessionStorage.setItem(QUIZ_RESULT_KEY, JSON.stringify({
             profile: result.profile,
             recommendations: result.recommendations,
           }));
@@ -71,46 +74,59 @@ export default function QuizPage() {
 
   return (
     <div className="min-h-screen bg-charcoal text-cream">
-      <div className="max-w-lg mx-auto px-4 py-12 md:py-16">
-        <p className="text-cream/50 text-xs tracking-[0.2em] uppercase mb-2">
-          Scent DNA
-        </p>
-        <p className="text-cream/60 text-sm mb-6">
-          {step + 1} of {QUIZ_QUESTIONS.length}
-        </p>
-        <div className="h-px bg-cream/10 rounded-full overflow-hidden mb-10">
-          <div
-            className="h-full bg-cream/40 rounded-full transition-all duration-300"
-            style={{
-              width: `${((step + 1) / QUIZ_QUESTIONS.length) * 100}%`,
-            }}
-          />
+      <div className="max-w-lg mx-auto px-4 py-10 md:py-14">
+        {/* Progress */}
+        <div className="mb-8">
+          <div className="flex justify-between items-baseline text-sm mb-2">
+            <span className="text-cream/50 tracking-[0.15em] uppercase">Scent DNA</span>
+            <span className="text-cream/60 tabular-nums">
+              {step + 1} of {TOTAL}
+            </span>
+          </div>
+          <div className="h-0.5 bg-cream/10 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-cream/50 rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${progressPct}%` }}
+              role="progressbar"
+              aria-valuenow={step + 1}
+              aria-valuemin={1}
+              aria-valuemax={TOTAL}
+            />
+          </div>
         </div>
 
-        <h1 className="font-serif text-2xl md:text-3xl font-light tracking-tight mb-10 leading-snug">
-          {current.question}
-        </h1>
+        {/* Question + options (keyed for transition) */}
+        <div key={step} className="animate-quiz-fade-in">
+          <h1 className="font-serif text-2xl md:text-3xl font-light tracking-tight mb-8 leading-snug text-cream">
+            {current.question}
+          </h1>
 
-        <ul className="space-y-3 mb-12">
-          {current.options.map((opt) => (
-            <li key={opt.value}>
-              <button
-                type="button"
-                onClick={() => handleSelect(opt.value)}
-                className={`w-full text-left px-5 py-4 border transition-colors text-sm ${
-                  answers[current.id] === opt.value
-                    ? "border-cream bg-cream/10 text-cream"
-                    : "border-cream/20 text-cream/80 hover:border-cream/40 hover:bg-cream/5"
-                }`}
-              >
-                {opt.label}
-              </button>
-            </li>
-          ))}
-        </ul>
+          <ul className="space-y-3 mb-10">
+            {current.options.map((opt) => {
+              const isSelected = answers[current.id] === opt.value;
+              return (
+                <li key={opt.value}>
+                  <button
+                    type="button"
+                    onClick={() => handleSelect(opt.value)}
+                    className={`w-full text-left px-5 py-4 rounded-sm border-2 transition-all duration-200 text-sm leading-relaxed ${
+                      isSelected
+                        ? "border-cream bg-cream/10 text-cream"
+                        : "border-cream/20 text-cream/85 hover:border-cream/40 hover:bg-cream/5 active:scale-[0.99]"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
 
         {error && (
-          <p className="text-red-300/90 text-sm mb-4">{error}</p>
+          <p className="text-red-300/90 text-sm mb-4" role="alert">
+            {error}
+          </p>
         )}
 
         <div className="flex gap-3">
@@ -118,7 +134,7 @@ export default function QuizPage() {
             <button
               type="button"
               onClick={handleBack}
-              className="px-4 py-2.5 border border-cream/30 text-cream/90 text-sm hover:bg-cream/10 transition-colors"
+              className="px-5 py-3 border border-cream/30 text-cream/90 text-sm hover:bg-cream/10 transition-colors rounded-sm"
             >
               Back
             </button>
@@ -127,7 +143,7 @@ export default function QuizPage() {
             type="button"
             onClick={handleNext}
             disabled={!canNext || submitting}
-            className="flex-1 py-3.5 bg-cream text-charcoal text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-cream/90 transition-colors"
+            className="flex-1 py-3.5 bg-cream text-charcoal text-sm font-medium rounded-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-cream/95 active:scale-[0.99] transition-all duration-200"
           >
             {submitting ? "Building your profile…" : isLast ? "See my result" : "Next"}
           </button>
