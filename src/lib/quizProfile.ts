@@ -1,10 +1,11 @@
 /**
  * Generates a scent profile from quiz answers (new 9-question format).
- * Maps answers to dominant family, occasion, accent, and a short description.
+ * Maps answers to dominant family, occasion, accent, description, and archetype.
  * Uses same family/occasion/vibe logic as the engine mapper for consistency.
  */
 
 import { mapQuizAnswersToEngine } from "@/lib/quizToEngineMap";
+import { getArchetypeForPreferences } from "@/lib/quizToArchetype";
 import type { ScentProfile } from "@/types";
 
 const FAMILY_LABELS: Record<string, string> = {
@@ -61,11 +62,22 @@ export function generateScentProfile(answers: Record<string, string>): ScentProf
     parts.join(" ") ||
     "Your answers point to a balanced, versatile scent profile—fresh enough for day, with depth for when it matters.";
 
+  const archetype = getArchetypeForPreferences(engine);
+
   return {
     dominant,
     secondary,
     accent,
     description,
     genderPreference,
+    archetype: {
+      id: archetype.id,
+      name: archetype.name,
+      characterDescription: archetype.characterDescription,
+      fragranceFamilies: archetype.fragranceFamilies,
+      typicalOccasions: archetype.typicalOccasions,
+      seasonsWhereItShines: archetype.seasonsWhereItShines,
+      recommendationStyle: archetype.recommendationStyle,
+    },
   };
 }

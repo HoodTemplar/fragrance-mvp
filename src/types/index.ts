@@ -5,6 +5,17 @@
 
 export type GenderPreference = "masculine" | "feminine" | "unisex" | "open";
 
+/** Archetype data attached to quiz result for premium result reveal. */
+export interface ScentArchetypeResult {
+  id: string;
+  name: string;
+  characterDescription: string;
+  fragranceFamilies: string[];
+  typicalOccasions: string[];
+  seasonsWhereItShines: string[];
+  recommendationStyle: string;
+}
+
 export interface ScentProfile {
   dominant: string;
   secondary: string;
@@ -12,6 +23,8 @@ export interface ScentProfile {
   description: string;
   /** Preferred fragrance gender; used for recommendations. */
   genderPreference?: GenderPreference;
+  /** Scent DNA archetype for result screen (e.g. The Coastal Philosopher). */
+  archetype?: ScentArchetypeResult;
 }
 
 import type { ScoreBreakdown } from "@/lib/scoring";
