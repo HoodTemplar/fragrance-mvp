@@ -20,7 +20,6 @@ import type {
   WhenToWearRaw,
 } from "./types";
 import { getFragranceProfile } from "./fragranceProfile";
-import { getUserPreferenceProfile } from "./userPreferenceProfile";
 import { buildRecommendationExplanation } from "./explanationBuilder";
 
 const BUDGET_MAP: Record<string, BudgetTier> = {
@@ -210,82 +209,272 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
   const catalog = input.catalog ?? FRAGRANCE_CATALOG;
   const avoidSweet = input.avoidSweet ?? false;
 
-  const userPrefProfile = getUserPreferenceProfile({
-    family,
-    occasion,
-    vibe: userVibe,
-    avoidSweet,
-    projection: userProjection,
-  });
-
   const candidates = catalog.filter((f) => !alreadyOwned(detectedFragrances, f));
 
+  // --- Fragrance Intelligence Model (FIM) helpers ---
+  type TextureToken = "airy" | "watery" | "creamy" | "resinous" | "dry" | "powdery" | "smoky" | "leathery" | "musky";
+  type FamiliarityToken = "mass_appeal" | "distinctive" | "niche_collectable" | "challenging";
+  type ScentFamilyToken = "fresh" | "sweet" | "woody" | "spicy";
+
+  const quizQ5 = quizAnswers.q5 ?? "both";
+
+  const userIntensityNumeric = (() => {
+    const p = normalize(userProjection ?? "");
+    if (p === "intimate") return 1;
+    if (p === "moderate" || p === "soft") return 2;
+    if (p === "strong") return 3;
+    if (p === "bold") return 4;
+    return 2;
+  })();
+
+  const userTexture: TextureToken = (() => {
+    const v = normalize(userVibe ?? "");
+    if (v === "clean") return "musky";
+    if (v === "warm") return "resinous";
+    if (v === "mysterious") return "smoky";
+    if (family === "fresh") return "airy";
+    if (family === "sweet") return "creamy";
+    if (family === "woody") return "dry";
+    if (family === "spicy") return "resinous";
+    return "airy";
+  })();
+
+  const userFamiliarity: FamiliarityToken = (() => {
+    if (quizQ5 === "niche") return "niche_collectable";
+    if (quizQ5 === "designer") return "mass_appeal";
+    return "distinctive";
+  })();
+
+  function whenToWearLabel(f: CatalogFragrance): string {
+    const occs = new Set((f.occasions ?? []).map((o) => normalize(o)));
+    const hasAny = (...tags: string[]) => tags.some((t) => occs.has(normalize(t)));
+    if (hasAny("date", "evening")) return "Date nights & evenings";
+    if (hasAny("formal")) return "Formal occasions";
+    if (hasAny("office", "casual")) return "Office & everyday wear";
+    if (hasAny("summer")) return "Spring/summer wear";
+    return "Multi-setting wear";
+  }
+
+  function deriveProjectionNumeric(f: CatalogFragrance): number {
+    const p = normalize(f.projection ?? "");
+    if (p === "intimate") return 1;
+    if (p === "moderate" || p === "soft") return 2;
+    if (p === "strong") return 3;
+    if (p === "bold") return 4;
+    return 2;
+  }
+
+  function deriveLongevityNumeric(f: CatalogFragrance): number {
+    const l = normalize(f.longevity ?? "");
+    if (l === "short") return 1;
+    if (l === "moderate") return 3;
+    if (l === "long") return 5;
+    return 3;
+  }
+
+  function deriveTextureToken(f: CatalogFragrance): TextureToken {
+    const cat = normalize(f.category ?? "");
+    const accords = (f.accords ?? []).map((a) => normalize(a));
+    const vibe = normalize(f.vibe ?? "");
+
+    const has = (needle: string | RegExp) => {
+      if (typeof needle === "string") return accords.some((a) => a.includes(needle)) || cat.includes(needle);
+      return accords.some((a) => needle.test(a)) || needle.test(cat);
+    };
+
+    if (has("aquatic") || has("marine") || has(/sea salt|acqua|ocean/)) return "watery";
+    if (has("iris") || cat.includes("iris")) return "powdery";
+    if (has(/smoky|incense|oriental/)) return "smoky";
+    if (has("leather") || has("suede") || cat.includes("leather")) return "leathery";
+    if (has("amber") || has("oud") || has("incense") || cat.includes("oriental")) return "resinous";
+    if (has("vanilla") || has("gourmand") || has("tonka") || has("caramel") || has("milk") || has("coconut")) return "creamy";
+    if (has("musk") || vibe.includes("clean") || vibe.includes("minimal") || has("clean")) return "musky";
+    if (has(/wood|woody|cedar|vetiver|sandal|oud/)) return "dry";
+    if (cat.includes("fresh") || cat.includes("citrus") || vibe.includes("fresh")) return "airy";
+    return "dry";
+  }
+
+  function deriveScentFamilyToken(f: CatalogFragrance): ScentFamilyToken {
+    const cat = normalize(f.category ?? "");
+    const accords = (f.accords ?? []).map((a) => normalize(a));
+
+    const hasFresh =
+      accords.some((a) => ["citrus", "fresh", "aquatic", "green", "marine", "bergamot", "pineapple", "neroli"].some((t) => a.includes(t))) ||
+      cat.includes("fresh") ||
+      cat.includes("aquatic") ||
+      cat.includes("citrus");
+
+    const hasSweet =
+      accords.some((a) => ["vanilla", "amber", "gourmand", "sweet", "tonka", "caramel", "milk", "coconut", "peach"].some((t) => a.includes(t))) ||
+      /amber|gourmand|vanilla|sweet/.test(cat);
+
+    const hasWoody =
+      accords.some((a) => ["woody", "wood", "sandalwood", "cedar", "vetiver", "oud"].some((t) => a.includes(t))) ||
+      /woody|wood|oud|sandalwood|cedar/.test(cat);
+
+    const hasSpicy =
+      accords.some((a) => ["spicy", "oriental", "pepper", "incense", "leather", "smoky", "oud"].some((t) => a.includes(t))) ||
+      /spicy|oriental/.test(cat);
+
+    if (hasFresh) return "fresh";
+    if (hasSweet) return "sweet";
+    if (hasWoody && !hasSpicy) return "woody";
+    if (hasWoody && hasSpicy) return "spicy";
+    if (hasSpicy) return "spicy";
+    return "fresh";
+  }
+
+  function deriveFamiliarityToken(f: CatalogFragrance): FamiliarityToken {
+    const texture = deriveTextureToken(f);
+    const accords = (f.accords ?? []).map((a) => normalize(a));
+    const proj = deriveProjectionNumeric(f);
+    const lon = deriveLongevityNumeric(f);
+    const challengingAccords = accords.some((a) => /oud|incense|leather|smoky|unusual/.test(a));
+    if (challengingAccords && (proj >= 3 || lon >= 5)) return "challenging";
+
+    const isNiche = f.priceTier === "niche" || f.priceTier === "ultra-niche" || f.designerNiche === "niche";
+    if (isNiche) return "niche_collectable";
+
+    const isMass = f.priceTier === "budget" || f.priceTier === "designer" || f.priceTier === "luxury";
+    if (isMass) return texture === "resinous" || texture === "smoky" ? "distinctive" : "mass_appeal";
+
+    return "distinctive";
+  }
+
+  function textureGroup(t: TextureToken): "fresh" | "warm" | "wood" | "smoke" | "powder" | "leather" | "musky" {
+    if (t === "airy" || t === "watery") return "fresh";
+    if (t === "creamy" || t === "resinous") return "warm";
+    if (t === "dry") return "wood";
+    if (t === "smoky") return "smoke";
+    if (t === "powdery") return "powder";
+    if (t === "leathery") return "leather";
+    return "musky";
+  }
+
   const score = (f: CatalogFragrance): number => {
-    let s = 0;
+    // --- FIM multi-dimensional scoring ---
+    // Dimensions:
+    // - scent_family (dominant): accord overlap vs the user's family accord set
+    // - vibe (dominant): exact/synonym vibe match
+    // - texture: derived from catalog accords/vibe
+    // - setting: occasion tag intersection
+    // - intensity: projection numeric proximity
+    // - season: preferred seasons overlap
+    // - familiarity: mass_appeal vs distinctive vs niche vs challenging
 
-    if (genderPreference !== "open") {
-      if (f.gender === genderPreference) s += SCORE_GENDER;
-      else if (f.gender !== "unisex") s -= PENALTY_GENDER_MISMATCH;
+    const accords = (f.accords ?? []).map((a) => normalize(a));
+
+    // 1) scent_family
+    let scentMatches = 0;
+    for (const ua of userAccords) {
+      if (accords.some((c) => normalize(c) === normalize(ua) || normalize(c).includes(normalize(ua)))) scentMatches += 1;
     }
+    const scentFamilyScore =
+      scentMatches >= 4 ? 100 :
+      scentMatches === 3 ? 80 :
+      scentMatches === 2 ? 60 :
+      scentMatches === 1 ? 40 : -20;
 
-    if (f.accords?.length && userAccords.length > 0) {
-      const matchCount = userAccords.filter((a) =>
-        f.accords!.some((c) => normalize(c) === normalize(a) || normalize(c).includes(normalize(a)))
-      ).length;
-      if (matchCount > 0) s += Math.min(SCORE_ACCORD_MAX, matchCount * SCORE_ACCORD_PER_MATCH);
-    }
+    // 2) vibe
+    const vibeStrength = userVibe ? vibeMatchStrength(userVibe, f.vibe ?? "") : 0;
+    const vibeScore = vibeStrength === 2 ? 100 : vibeStrength === 1 ? 60 : -20;
 
-    if (userPreferredSeasons?.length && f.seasons?.length) {
-      const seasonMatch = f.seasons.some((se) =>
-        userPreferredSeasons.some((us) => normalize(us) === normalize(se))
-      );
-      if (seasonMatch) s += SCORE_SEASON;
-    }
+    // 3) texture
+    const fragTexture = deriveTextureToken(f);
+    const textureScore =
+      fragTexture === userTexture ? 90 :
+      textureGroup(fragTexture) === textureGroup(userTexture) ? 60 : -15;
 
+    // 4) setting
     const occasionMatches = f.occasions.filter((o) => userOccasions.includes(o));
-    if (occasionMatches.length > 0) s += Math.min(SCORE_OCCASION_MAX, occasionMatches.length * SCORE_OCCASION_PER);
+    const settingScore =
+      occasionMatches.length >= 3 ? 100 :
+      occasionMatches.length === 2 ? 80 :
+      occasionMatches.length === 1 ? 60 : -15;
 
-    const vibeStrength = f.vibe && userVibe ? vibeMatchStrength(userVibe, f.vibe) : 0;
-    if (vibeStrength === 2) s += SCORE_VIBE_STRONG;
-    else if (vibeStrength === 1) s += SCORE_VIBE_SYNONYM;
+    // 5) intensity (projection)
+    const fragIntensity = deriveProjectionNumeric(f);
+    const diff = Math.abs(fragIntensity - userIntensityNumeric);
+    const intensityScore =
+      diff === 0 ? 100 :
+      diff === 1 ? 70 :
+      diff === 2 ? 45 : -20;
 
-    if (userProjection && f.projection) {
-      const proj = normalize(f.projection);
-      const userProj = normalize(userProjection);
-      if (proj === userProj) s += SCORE_PROJECTION;
-      else if (
-        (userProj === "intimate" && (proj === "strong" || proj === "bold")) ||
-        (userProj === "strong" && (proj === "intimate" || proj === "soft"))
-      ) s -= PENALTY_PROJECTION_OPPOSITE;
+    // 6) season
+    let seasonScore = 50;
+    if (userPreferredSeasons?.length && f.seasons?.length) {
+      const overlap = f.seasons.filter((se) =>
+        userPreferredSeasons.some((us) => normalize(us) === normalize(se))
+      ).length;
+      seasonScore = overlap >= 2 ? 100 : overlap === 1 ? 70 : -15;
+      if (f.seasons.includes("all")) seasonScore = 80;
     }
 
-    if (f.longevity && userLongevityMatch.length > 0) {
-      const fragLong = normalize(f.longevity);
-      const match = userLongevityMatch.some((l) => normalize(l) === fragLong);
-      if (match) s += SCORE_LONGEVITY;
-      else if (userLongevityPref === "short" && fragLong === "long") s -= PENALTY_LONGEVITY_OPPOSITE;
+    // 7) familiarity
+    const fragFamiliarity = deriveFamiliarityToken(f);
+    let familiarityScore = -10;
+    if (fragFamiliarity === userFamiliarity) familiarityScore = 85;
+    else if (userFamiliarity === "distinctive") familiarityScore = fragFamiliarity === "challenging" ? 40 : 60;
+    else if (userFamiliarity === "mass_appeal") {
+      familiarityScore =
+        fragFamiliarity === "distinctive" ? 60 :
+        fragFamiliarity === "niche_collectable" ? 40 :
+        fragFamiliarity === "challenging" ? -20 : 50;
+    } else if (userFamiliarity === "niche_collectable") {
+      familiarityScore =
+        fragFamiliarity === "mass_appeal" ? 35 :
+        fragFamiliarity === "niche_collectable" ? 85 :
+        fragFamiliarity === "challenging" ? 70 : 60;
     }
 
-    if (userPreferredStyleClusters.length > 0 && userPreferredStyleClusters.includes(f.styleCluster)) s += SCORE_STYLE_CLUSTER;
-    if (userPreferredPriceTiers.length > 0 && userPreferredPriceTiers.includes(f.priceTier)) s += SCORE_PRICE_TIER;
-    if (missingCategories.length > 0 && categoryMatchesGap(f.category, missingCategories)) s += SCORE_GAP_CATEGORY;
+    // Weighted total: dominant scent_family + vibe
+    const weights = {
+      scent_family: 28,
+      vibe: 22,
+      texture: 12,
+      setting: 15,
+      intensity: 12,
+      season: 6,
+      familiarity: 5,
+    } as const;
 
-    const fragProfile = getFragranceProfile(f);
-    if (avoidSweet && fragProfile.sweetness > 50) s -= PENALTY_AVOID_SWEET;
+    const baseTotal =
+      (scentFamilyScore * weights.scent_family +
+        vibeScore * weights.vibe +
+        textureScore * weights.texture +
+        settingScore * weights.setting +
+        intensityScore * weights.intensity +
+        seasonScore * weights.season +
+        familiarityScore * weights.familiarity) /
+      100;
 
-    const alignment =
-      (["freshness", "warmth", "sweetness", "woodiness", "spice", "cleanliness", "sensuality", "versatility"] as const).reduce(
-        (sum, key) => sum + Math.max(0, 5 - Math.abs(userPrefProfile[key] - fragProfile[key]) / 20),
-        0
-      );
-    s += Math.min(SCORE_ALIGNMENT_MAX, Math.round(alignment));
-    return s;
+    // Keep important existing constraints as additional adjustments
+    let constraintAdjust = 0;
+    if (genderPreference !== "open") {
+      if (f.gender === genderPreference) constraintAdjust += 18;
+      else if (f.gender !== "unisex") constraintAdjust -= 18;
+    }
+
+    if (avoidSweet) {
+      const sweetish = accords.filter((a) => /vanilla|gourmand|sweet|tonka|caramel|amber/.test(a)).length;
+      if (sweetish >= 2) constraintAdjust -= 35;
+    }
+
+    if (userPreferredPriceTiers.length > 0) {
+      constraintAdjust += userPreferredPriceTiers.includes(f.priceTier) ? 8 : -4;
+    }
+
+    if (missingCategories.length > 0 && categoryMatchesGap(f.category, missingCategories)) {
+      constraintAdjust += 12;
+    }
+
+    return baseTotal + constraintAdjust;
   };
 
   const withScores = candidates.map((f) => ({ f, s: score(f) }));
   withScores.sort((a, b) => b.s - a.s);
-  const poolSize = Math.min(CANDIDATE_POOL_SIZE, withScores.length);
-  const pool = withScores.slice(0, poolSize);
+  // FIM requirement: use the full catalog (no truncation/pooling).
+  const pool = withScores;
 
   type Scored = (typeof pool)[number];
   const userContext = {
@@ -366,16 +555,31 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
   /** True if f is too similar to any already-picked (same brand+cluster, or same category + heavy accord overlap). */
   function isTooSimilar(f: CatalogFragrance, pickedSoFar: CatalogFragrance[]): boolean {
     const fAccords = new Set((f.accords ?? []).map((a) => normalize(a)));
-    const fCat = normalize(f.category ?? "");
+    const fFamily = deriveScentFamilyToken(f);
+    const fTexture = deriveTextureToken(f);
+    const fProj = deriveProjectionNumeric(f);
+
     for (const p of pickedSoFar) {
+      const pAccords = new Set((p.accords ?? []).map((a) => normalize(a)));
+      const overlap = Array.from(fAccords).filter((a) => pAccords.has(a)).length;
+
+      const pFamily = deriveScentFamilyToken(p);
+      const pTexture = deriveTextureToken(p);
+      const pProj = deriveProjectionNumeric(p);
+
+      // Hard duplicates / near-duplicates
       if (p.brand === f.brand && p.styleCluster === f.styleCluster) return true;
-      const pCat = normalize(p.category ?? "");
-      if (fCat === pCat) {
-        const pAccords = (p.accords ?? []).map((a) => normalize(a));
-        const overlap = pAccords.filter((a) => fAccords.has(a)).length;
-        if (overlap >= 2) return true;
-      }
+      if (overlap >= 4) return true;
+
+      // Similar scent profile: same family + same texture + heavy accord overlap
+      const sameProfile = fFamily === pFamily && fTexture === pTexture && overlap >= 3;
+      const sameIntensity = Math.abs(fProj - pProj) <= 0;
+      if (sameProfile && sameIntensity) return true;
+
+      // Same cluster + partial overlap is also discouraged to keep variety
+      if (p.styleCluster === f.styleCluster && overlap >= 2) return true;
     }
+
     return false;
   }
 
@@ -419,12 +623,26 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     });
 
     const best = withRoleScores[0];
-    if (best && best.roleScore >= 20) {
+    if (best) {
       const { f } = best.scored;
       usedIds.add(f.id);
       usedKeys.add(canonicalKey(f));
       pickedFragrances.push(f);
-      const reason = buildRecommendationExplanation(userContext, f, getCachedProfile(f));
+
+      const why = buildRecommendationExplanation(userContext, f, getCachedProfile(f));
+      const when = whenToWearLabel(f);
+      const roleLine =
+        role === "SAFE"
+          ? "Role: SAFE — the easy-to-wear anchor that matches your profile."
+          : role === "BOLD"
+            ? "Role: BOLD — higher intensity and stronger presence when you want to be remembered."
+            : role === "NICHE"
+              ? "Role: NICHE — distinctive and artistic, built for collectors and conversation starters."
+              : role === "VERSATILE"
+                ? "Role: VERSATILE — balanced across settings, so it stays useful day after day."
+                : "Role: WILDCARD — the unexpected-but-aligned pick that adds personality to your lineup.";
+
+      const reason = `${why} When to wear: ${when}. ${roleLine}`;
       picked.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason });
     }
   }
@@ -435,7 +653,9 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     usedIds.add(f.id);
     usedKeys.add(canonicalKey(f));
     pickedFragrances.push(f);
-    const reason = buildRecommendationExplanation(userContext, f, getCachedProfile(f));
+    const why = buildRecommendationExplanation(userContext, f, getCachedProfile(f));
+    const when = whenToWearLabel(f);
+    const reason = `${why} When to wear: ${when}. Role: EXTRA — backfilled to keep your 5-fragrance set complete.`;
     picked.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason });
   }
 
@@ -447,7 +667,9 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     usedIds.add(next.id);
     usedKeys.add(canonicalKey(next));
     pickedFragrances.push(next);
-    const reason = buildRecommendationExplanation(userContext, next, getCachedProfile(next));
+    const why = buildRecommendationExplanation(userContext, next, getCachedProfile(next));
+    const when = whenToWearLabel(next);
+    const reason = `${why} When to wear: ${when}. Role: EXTRA — backfilled to keep your 5-fragrance set complete.`;
     picked.push({ id: next.id, name: next.name, brand: next.brand, category: next.category, reason });
   }
 
@@ -471,7 +693,9 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     seenIds.add(f.id);
     seenKeys.add(key);
     const fragProfile = getFragranceProfile(f);
-    const reason = buildRecommendationExplanation(userContext, f, fragProfile);
+    const why = buildRecommendationExplanation(userContext, f, fragProfile);
+    const when = whenToWearLabel(f);
+    const reason = `${why} When to wear: ${when}. Role: EXTRA — backfilled from the next best candidates.`;
     unique.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason });
   }
 
