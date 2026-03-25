@@ -1,17 +1,13 @@
 "use client";
 
 /**
- * Scent DNA quiz — scene-based, each answer card has its own theme and subtle animation.
+ * Scent DNA quiz — scene-based questions with neutral answer options.
  * Click triggers card pulse and smooth page background transition to match selection.
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import {
-  QUIZ_QUESTIONS,
-  type ThemeHint,
-  type CardThemeKey,
-} from "@/data/quizQuestions";
+import { QUIZ_QUESTIONS, type ThemeHint } from "@/data/quizQuestions";
 import { submitQuiz } from "@/app/actions/quiz";
 import { trackEvent } from "@/lib/events";
 
@@ -28,88 +24,6 @@ const TOTAL = QUIZ_QUESTIONS.length;
 function getThemeFromHint(hint: ThemeHint | undefined): "dark" | "fresh" | "warm" {
   if (hint && hint !== "neutral") return hint;
   return "dark";
-}
-
-/** Unique visual theme per answer card: gradient, text, border, glow. */
-const CARD_THEMES: Record<
-  CardThemeKey,
-  {
-    gradient: string;
-    textColor: string;
-    borderColor: string;
-    subtitleOpacity: number;
-  }
-> = {
-  dark_mysterious: {
-    gradient: "linear-gradient(135deg, #1a1519 0%, #2d2438 50%, #1e1a24 100%)",
-    textColor: "#F5F0E8",
-    borderColor: "rgba(139, 92, 246, 0.25)",
-    subtitleOpacity: 0.8,
-  },
-  fresh_clean: {
-    gradient: "linear-gradient(135deg, #e8f4f8 0%, #d4e8ef 50%, #f0f7fa 100%)",
-    textColor: "#1a2529",
-    borderColor: "rgba(90, 138, 158, 0.3)",
-    subtitleOpacity: 0.75,
-  },
-  warm_spicy: {
-    gradient: "linear-gradient(135deg, #3d2c1f 0%, #5c3d2a 50%, #4a3528 100%)",
-    textColor: "#F5F0E8",
-    borderColor: "rgba(212, 168, 83, 0.35)",
-    subtitleOpacity: 0.85,
-  },
-  nightlife: {
-    gradient: "linear-gradient(135deg, #1a1a24 0%, #252030 50%, #1e1a28 100%)",
-    textColor: "#F5F0E8",
-    borderColor: "rgba(196, 181, 255, 0.3)",
-    subtitleOpacity: 0.85,
-  },
-  beach_sun: {
-    gradient: "linear-gradient(135deg, #f5f0e0 0%, #e8e6d8 40%, #dce8ec 100%)",
-    textColor: "#2c3e3e",
-    borderColor: "rgba(155, 190, 200, 0.4)",
-    subtitleOpacity: 0.75,
-  },
-  warm_cozy: {
-    gradient: "linear-gradient(135deg, #2d2520 0%, #3e3229 50%, #352c26 100%)",
-    textColor: "#F5F0E8",
-    borderColor: "rgba(201, 169, 98, 0.25)",
-    subtitleOpacity: 0.8,
-  },
-  neutral_classic: {
-    gradient: "linear-gradient(135deg, #2a2826 0%, #353230 50%, #2d2b29 100%)",
-    textColor: "#F5F0E8",
-    borderColor: "rgba(245, 240, 232, 0.15)",
-    subtitleOpacity: 0.75,
-  },
-  fresh_airy: {
-    gradient: "linear-gradient(135deg, #f8fbfc 0%, #eef4f7 50%, #e2edf2 100%)",
-    textColor: "#1e2d32",
-    borderColor: "rgba(130, 170, 180, 0.25)",
-    subtitleOpacity: 0.7,
-  },
-  bold_dark: {
-    gradient: "linear-gradient(135deg, #151515 0%, #1f1f1f 50%, #181818 100%)",
-    textColor: "#F5F0E8",
-    borderColor: "rgba(245, 240, 232, 0.2)",
-    subtitleOpacity: 0.8,
-  },
-  soft_cream: {
-    gradient: "linear-gradient(135deg, #3d3832 0%, #4a443c 50%, #423c35 100%)",
-    textColor: "#F5F0E8",
-    borderColor: "rgba(245, 240, 232, 0.18)",
-    subtitleOpacity: 0.8,
-  },
-};
-
-const DEFAULT_CARD_THEME: CardThemeKey = "neutral_classic";
-
-function getCardTheme(opt: { cardTheme?: CardThemeKey; themeHint?: ThemeHint }): CardThemeKey {
-  if (opt.cardTheme) return opt.cardTheme;
-  if (opt.themeHint === "fresh") return "fresh_clean";
-  if (opt.themeHint === "warm") return "warm_cozy";
-  if (opt.themeHint === "dark") return "dark_mysterious";
-  return DEFAULT_CARD_THEME;
 }
 
 export default function QuizPage() {
@@ -245,8 +159,6 @@ export default function QuizPage() {
           <ul className="space-y-4 mb-12">
             {current.options.map((opt) => {
               const isSelected = answers[current.id] === opt.value;
-              const cardKey = getCardTheme(opt);
-              const style = CARD_THEMES[cardKey];
               const isPressing = pressingValue === opt.value;
 
               return (
@@ -257,25 +169,12 @@ export default function QuizPage() {
                     className={`quiz-answer-card w-full text-left px-6 py-5 rounded-xl border-2 ${
                       isSelected ? "quiz-answer-card-selected" : ""
                     } ${isPressing ? "animate-card-press" : ""}`}
-                    style={{
-                      background: style.gradient,
-                      color: style.textColor,
-                      borderColor: isSelected
-                        ? "var(--theme-accent)"
-                        : style.borderColor,
-                    }}
                   >
-                    <span className="block font-medium text-base md:text-lg leading-snug">
+                    <span className="block font-medium text-base md:text-lg leading-snug text-neutral-900">
                       {opt.label}
                     </span>
                     {opt.subtitle && (
-                      <span
-                        className="block text-sm mt-1 leading-relaxed"
-                        style={{
-                          opacity: style.subtitleOpacity,
-                          color: "inherit",
-                        }}
-                      >
+                      <span className="block text-sm mt-1 leading-relaxed text-neutral-500">
                         {opt.subtitle}
                       </span>
                     )}

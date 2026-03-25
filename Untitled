@@ -1,0 +1,24 @@
+# ===========================================
+# Scent DNA – Supabase environment variables
+# ===========================================
+#
+# 1. Copy this file and name the copy:  .env.local
+# 2. Do not commit .env.local (it is in .gitignore).
+# 3. Get the values from your Supabase project (see SUPABASE_SETUP.md).
+#
+
+# Your Supabase project URL (e.g. https://abcdefgh.supabase.co)
+NEXT_PUBLIC_SUPABASE_URL=https://rlxxlkhzabebthikledg.supabase.co
+
+# Your Supabase anon/public key (long string from Project Settings → API)
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJseHhsa2h6YWJlYnRoaWtsZWRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NDcwNDYsImV4cCI6MjA4OTEyMzA0Nn0.nhpiV4o4hzfIpPhdt3lx3oM5LgE2UBr6KliXI6sDlAk
+
+# ===========================================
+# AI (OpenAI) – for fragrance collection analysis
+# ===========================================
+#
+# Paste your OpenAI API key here. Get it from: https://platform.openai.com/api-keys
+# Used only on the server to analyze uploaded shelf photos (vision) and generate analysis text.
+# Do not add NEXT_PUBLIC_ to this key — it must stay server-only.
+#
+OPENAI_API_KEY=sk-proj-Q3YV7wYDgjM9nq-kF651b02iNQyD_vDg7zgMq5N89
