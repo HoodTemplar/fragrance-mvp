@@ -224,6 +224,19 @@ function buildCatalogVibeText(f: CatalogFragrance): string {
   return normalize(parts.filter(Boolean).join(" "));
 }
 
+/** Jaccard similarity for two string lists (e.g. occasions, seasons). */
+function jaccardStringLists(a: string[] | undefined, b: string[] | undefined): number {
+  const A = new Set((a ?? []).map((x) => normalize(x)).filter(Boolean));
+  const B = new Set((b ?? []).map((x) => normalize(x)).filter(Boolean));
+  if (A.size === 0 && B.size === 0) return 0;
+  let inter = 0;
+  A.forEach((x) => {
+    if (B.has(x)) inter += 1;
+  });
+  const union = A.size + B.size - inter;
+  return union > 0 ? inter / union : 0;
+}
+
 /** Fisher–Yates shuffle (mutates array). */
 function shuffle<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -740,15 +753,22 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     return "";
   }
 
+  /** Vibe token from blended catalog text (category/accords/style) so sparse `vibe` still diversifies. */
+  function deriveVibeTokenFromCatalog(f: CatalogFragrance): string {
+    return deriveVibeToken(buildCatalogVibeText(f));
+  }
+
   /** True if f is too similar to any already-picked (same brand+cluster, or same category + heavy accord overlap). */
   function isTooSimilar(f: CatalogFragrance, pickedSoFar: CatalogFragrance[]): boolean {
     const fAccords = new Set((f.accords ?? []).map((a) => normalize(a)));
     const fFamily = deriveScentFamilyToken(f);
     const fTexture = deriveTextureToken(f);
     const fProj = deriveProjectionNumeric(f);
-    const fVibeToken = deriveVibeToken(f.vibe ?? "");
+    const fLon = deriveLongevityNumeric(f);
+    const fVibeToken = deriveVibeTokenFromCatalog(f);
     const fStyleCluster = f.styleCluster;
     const fPriceTier = f.priceTier;
+    const fCatLine = normalize(f.category ?? "");
 
     for (const p of pickedSoFar) {
       const pAccords = new Set((p.accords ?? []).map((a) => normalize(a)));
@@ -757,12 +777,18 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
       const pFamily = deriveScentFamilyToken(p);
       const pTexture = deriveTextureToken(p);
       const pProj = deriveProjectionNumeric(p);
-      const pVibeToken = deriveVibeToken(p.vibe ?? "");
+      const pLon = deriveLongevityNumeric(p);
+      const pVibeToken = deriveVibeTokenFromCatalog(p);
 
       const styleSame = p.styleCluster === fStyleCluster;
       const priceSame = p.priceTier === fPriceTier;
       const projDiff = Math.abs(fProj - pProj);
+      const lonDiff = Math.abs(fLon - pLon);
       const vibeSame = !!(fVibeToken && pVibeToken && fVibeToken === pVibeToken);
+      const occJ = jaccardStringLists(f.occasions, p.occasions);
+      const seaJ = jaccardStringLists(f.seasons, p.seasons);
+      const sparseAccords = Math.min(fAccords.size, pAccords.size) < 2 && overlap < 2;
+      const pCatLine = normalize(p.category ?? "");
 
       // Hard duplicates / near-duplicates
       if (p.brand === f.brand && p.styleCluster === f.styleCluster) return true;
@@ -779,6 +805,16 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
 
       // Ultra-similar when multiple trait axes align.
       if (sameProfileBase && vibeSame && projDiff <= 1 && (styleSame || priceSame)) return true;
+
+      // Sparse accord data: same category line + style + vibe + projection cluster.
+      if (fCatLine && fCatLine === pCatLine && styleSame && vibeSame && projDiff <= 1) return true;
+
+      if (sparseAccords && fFamily === pFamily && styleSame && vibeSame && projDiff <= 1 && lonDiff <= 1) return true;
+
+      if (sparseAccords && fFamily === pFamily && styleSame && occJ >= 0.6 && lonDiff <= 1) return true;
+
+      // High wearing-profile overlap (occasion + season) with same family/style.
+      if (occJ >= 0.8 && fFamily === pFamily && styleSame && seaJ >= 0.5 && projDiff <= 1) return true;
     }
 
     return false;
@@ -795,10 +831,12 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     const fAccords = new Set((f.accords ?? []).map((a) => normalize(a)));
     const fFamily = deriveScentFamilyToken(f);
     const fTexture = deriveTextureToken(f);
-    const fVibeToken = deriveVibeToken(f.vibe ?? "");
+    const fVibeToken = deriveVibeTokenFromCatalog(f);
     const fProj = deriveProjectionNumeric(f);
+    const fLon = deriveLongevityNumeric(f);
     const fStyleCluster = f.styleCluster;
     const fPriceTier = f.priceTier;
+    const fCat = normalize(f.category ?? "");
 
     let maxPenalty = 0;
     for (const p of pickedSoFar) {
@@ -806,18 +844,24 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
       const overlap = Array.from(fAccords).filter((a) => pAccords.has(a)).length;
       const pFamily = deriveScentFamilyToken(p);
       const pTexture = deriveTextureToken(p);
-      const pVibeToken = deriveVibeToken(p.vibe ?? "");
+      const pVibeToken = deriveVibeTokenFromCatalog(p);
       const pProj = deriveProjectionNumeric(p);
+      const pLon = deriveLongevityNumeric(p);
       const projDiff = Math.abs(pProj - fProj);
+      const lonDiff = Math.abs(pLon - fLon);
       const styleSame = p.styleCluster === fStyleCluster;
       const priceSame = p.priceTier === fPriceTier;
+      const pCat = normalize(p.category ?? "");
 
-      const seasonOverlap =
-        (f.seasons ?? []).some((fs) => (p.seasons ?? []).some((ps) => normalize(fs) === normalize(ps))) ? 1 : 0;
+      const occJ = jaccardStringLists(f.occasions, p.occasions);
+      const seaJ = jaccardStringLists(f.seasons, p.seasons);
+      const accordRich = 0.5 * (fAccords.size + pAccords.size);
+      const accordScale = Math.min(1, accordRich / 6);
+      const structuralBoost = 1 + (1 - accordScale) * 0.45;
 
       let pPenalty = 0;
-      // Downweight accord overlap: it’s not always present in the DB.
-      pPenalty += Math.min(16, overlap * 2);
+      // Scale accord contribution down when lists are thin; structural signals carry more weight then.
+      pPenalty += accordScale * Math.min(16, overlap * 2);
       if (p.brand === f.brand) pPenalty += 10;
       if (pFamily === fFamily) pPenalty += 10;
       if (pTexture === fTexture) pPenalty += 8;
@@ -826,11 +870,17 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
       if (priceSame) pPenalty += 6;
       if (projDiff <= 0) pPenalty += 6;
       else if (projDiff <= 1) pPenalty += 3;
-      if (seasonOverlap) pPenalty += 4;
+      pPenalty += seaJ * 9;
+      pPenalty += occJ * 14 * structuralBoost;
+      if (fCat && fCat === pCat) pPenalty += 6 * structuralBoost;
+      if (lonDiff <= 0) pPenalty += 5;
+      else if (lonDiff <= 1) pPenalty += 3;
+      else if (lonDiff <= 2) pPenalty += 1;
+      if (p.designerNiche === f.designerNiche && p.brand !== f.brand) pPenalty += 2;
       maxPenalty = Math.max(maxPenalty, pPenalty);
     }
 
-    return Math.min(35, maxPenalty);
+    return Math.min(42, maxPenalty);
   }
 
   const usedIds = new Set<string>();
