@@ -93,9 +93,12 @@ const FAMILY_ACCORDS: Record<string, string[]> = {
 
 /** Quiz q2 (occasion) -> occasion tags we look for in catalog. */
 const OCCASION_TAGS: Record<string, string[]> = {
-  daily: ["office", "casual"],
-  nightlife: ["evening"],
-  date: ["date"],
+  // Keep "daily" broad enough to include professional/formal-leaning scents.
+  daily: ["office", "casual", "formal"],
+  // Nightlife often overlaps with "evening" and "date" wearing.
+  nightlife: ["evening", "date"],
+  // Date-night commonly includes both "date" and "evening".
+  date: ["date", "evening"],
   all: ["office", "casual", "date", "evening", "formal", "summer"],
 };
 
@@ -108,13 +111,13 @@ const LONGEVITY_MAP: Record<string, string[]> = {
 
 /** User vibe <-> catalog vibe: synonym mapping for scoring. */
 const VIBE_SYNONYMS: Record<string, string[]> = {
-  seductive: ["sensual", "romantic", "daring", "attractive", "glamorous", "bold", "dark", "mysterious"],
-  adventurous: ["adventurous", "bold", "unusual", "edgy", "sporty", "iconic"],
-  timeless: ["classic", "refined", "elegant", "sophisticated", "iconic", "luxurious", "modern"],
-  clean: ["fresh", "minimal", "airy", "crisp", "clean", "polished", "light"],
+  seductive: ["sensual", "romantic", "daring", "attractive", "glamorous", "intimate", "warm", "bold", "dark", "mysterious"],
+  adventurous: ["adventurous", "bold", "unusual", "edgy", "sporty", "dynamic", "iconic"],
+  timeless: ["classic", "refined", "elegant", "sophisticated", "tailored", "polished", "iconic", "luxurious", "modern"],
+  clean: ["fresh", "minimal", "airy", "crisp", "clean", "soapy", "musky", "polished", "light"],
   fresh: ["clean", "airy", "minimal", "crisp", "fresh"],
-  mysterious: ["dark", "seductive", "bold", "intense", "noir", "mysterious", "opulent"],
-  warm: ["spicy", "amber", "cozy", "rich", "warm", "balsamic"],
+  mysterious: ["dark", "seductive", "bold", "intense", "noir", "mysterious", "smoky", "leathery", "opulent"],
+  warm: ["spicy", "amber", "cozy", "rich", "warm", "balsamic", "resinous"],
 };
 
 /** Returns 2 = exact match, 1 = synonym match, 0 = no match. */
@@ -124,10 +127,11 @@ function vibeMatchStrength(userVibe: string, catalogVibe: string): 0 | 1 | 2 {
   const c = normalize(catalogVibe);
   if (u === c) return 2;
   if (c.includes(u)) return 2;
-  const catalogWords = c.split(/\s+/).filter(Boolean);
+  // Split into words and also consider hyphenated/compound vibes.
+  const catalogWords = c.split(/[\s/,-]+/).filter(Boolean);
   const userSynonyms = VIBE_SYNONYMS[u];
-  if (userSynonyms?.some((v) => catalogWords.some((w) => w === v || w.includes(v)))) return 1;
-  if (userSynonyms?.some((v) => c === v || c.includes(v))) return 1;
+  if (userSynonyms?.some((v) => catalogWords.some((w) => w === v || w.includes(v) || v.includes(w)))) return 1;
+  if (userSynonyms?.some((v) => c === v || c.includes(v) || v.includes(c))) return 1;
   for (const [quizVal, catalogVals] of Object.entries(VIBE_SYNONYMS)) {
     if (normalize(quizVal) === u && catalogVals.some((v) => c === v || c.includes(v))) return 1;
   }
