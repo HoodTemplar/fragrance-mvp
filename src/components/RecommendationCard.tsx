@@ -119,6 +119,11 @@ export default function RecommendationCard({
     (index != null && index < ROLES_ORDER.length ? ROLES_ORDER[index] : undefined);
   const roleStyle = role ? getRoleStyle(role) : null;
 
+  const confidencePct =
+    typeof recommendation.confidence === "number"
+      ? Math.round(Math.max(0, Math.min(1, recommendation.confidence)) * 100)
+      : null;
+
   const content =
     variant === "editorial" ? (
       <div className="flex flex-col gap-4">
@@ -129,6 +134,11 @@ export default function RecommendationCard({
                 className={`inline-block text-xs uppercase tracking-widest mb-2 ${roleStyle.pillClass} px-2 py-1 rounded`}
               >
                 {roleStyle.label}
+              </span>
+            )}
+            {confidencePct != null && (
+              <span className="inline-block ml-2 text-xs uppercase tracking-widest mb-2 bg-charcoal/5 text-charcoal px-2 py-1 rounded">
+                {confidencePct}% confident
               </span>
             )}
             <p className="font-serif text-xl md:text-2xl">
@@ -147,6 +157,16 @@ export default function RecommendationCard({
         <p className={`text-sm leading-relaxed ${roleStyle?.textMuted ?? "text-charcoal/80"}`}>
           {recommendation.note}
         </p>
+        {recommendation.whyThisWorks && (
+          <div className="pt-1">
+            <p className="text-xs uppercase tracking-widest text-charcoal/50 mb-1">
+              Why this works for you
+            </p>
+            <p className={`text-sm leading-relaxed ${roleStyle?.textMuted ?? "text-charcoal/80"}`}>
+              {recommendation.whyThisWorks}
+            </p>
+          </div>
+        )}
         <p className={`text-xs ${roleStyle?.textMuted ?? "text-charcoal/50"}`}>{recommendation.category}</p>
       </div>
     ) : (

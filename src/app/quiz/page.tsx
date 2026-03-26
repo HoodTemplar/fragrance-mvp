@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { QUIZ_QUESTIONS, type ThemeHint } from "@/data/quizQuestions";
 import { submitQuiz } from "@/app/actions/quiz";
 import { trackEvent } from "@/lib/events";
+import { mapQuizAnswersToEngine } from "@/lib/quizToEngineMap";
 
 function makeSessionId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -75,11 +76,14 @@ export default function QuizPage() {
           return;
         }
         if (typeof window !== "undefined") {
+          const quizPreferences = mapQuizAnswersToEngine(answers);
           sessionStorage.setItem(
             QUIZ_RESULT_KEY,
             JSON.stringify({
               profile: result.profile,
               recommendations: result.recommendations,
+              quizAnswers: answers,
+              quizPreferences,
             })
           );
         }

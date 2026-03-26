@@ -9,11 +9,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import IdentityGraphic from "@/components/IdentityGraphic";
 import type { ScentProfile } from "@/types";
+import type { EngineReadyPreferences } from "@/lib/quizToEngineMap";
+import { deriveScentDnaFromQuiz } from "@/lib/scentDnaFromQuiz";
 
 const QUIZ_RESULT_KEY = "scent-dna-quiz-result";
 
 export default function QuizResultPage() {
   const [profile, setProfile] = useState<ScentProfile | null>(null);
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, string> | null>(null);
+  const [quizPreferences, setQuizPreferences] = useState<EngineReadyPreferences | null>(null);
 
   useEffect(() => {
     document.documentElement.removeAttribute("data-theme");
@@ -27,8 +31,12 @@ export default function QuizResultPage() {
         const parsed = JSON.parse(raw) as {
           profile: ScentProfile;
           recommendations?: unknown;
+          quizAnswers?: Record<string, string>;
+          quizPreferences?: EngineReadyPreferences;
         };
         setProfile(parsed.profile ?? null);
+        setQuizAnswers(parsed.quizAnswers ?? null);
+        setQuizPreferences(parsed.quizPreferences ?? null);
       }
     } catch {
       setProfile(null);
@@ -54,13 +62,14 @@ export default function QuizResultPage() {
   }
 
   const archetype = profile.archetype;
+  const scentDna = deriveScentDnaFromQuiz(profile, quizAnswers, quizPreferences);
 
   return (
     <div className="min-h-screen bg-charcoal text-cream">
       <div className="max-w-2xl mx-auto px-4 py-16 md:py-24">
         {/* Small label */}
         <p className="text-cream/50 text-xs tracking-[0.25em] uppercase mb-8 animate-fade-in text-center md:text-left">
-          Your Scent DNA
+          Scent identity
         </p>
 
         {archetype ? (
@@ -70,6 +79,9 @@ export default function QuizResultPage() {
               <IdentityGraphic archetypeId={archetype.id} className="rounded-2xl" />
 
               <div className="relative z-10 px-2">
+                <p className="text-cream/60 text-xs tracking-[0.25em] uppercase mb-4">
+                  Your Scent identity
+                </p>
                 <h1
                   className="font-serif text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-light tracking-tight leading-[1.1] text-cream mb-6"
                   style={{ letterSpacing: "0.04em" }}
@@ -101,14 +113,47 @@ export default function QuizResultPage() {
               </span>
             </div>
 
-            {/* Sections: compact, editorial */}
-            <section className="border-t border-cream/10 pt-8 mb-8">
+            {/* Personality-style description + Scent DNA */}
+            <section className="mb-10 border-t border-cream/10 pt-8">
               <h2 className="text-cream/40 text-xs uppercase tracking-widest mb-3">
-                Your top families
+                Personality-style reads
               </h2>
-              <p className="text-cream/90 text-sm leading-relaxed">
-                {archetype.fragranceFamilies.join(", ")}
+              <p className="text-cream/90 text-sm leading-relaxed max-w-xl">
+                {profile.description}
+                {" "}
+                <span className="text-cream/75">
+                  Your DNA lands on {scentDna.texture.toLowerCase()} texture with {scentDna.darkness.toLowerCase()} energy,
+                  balanced by {scentDna.sweetness.toLowerCase()}.
+                </span>
               </p>
+            </section>
+
+            <section className="mb-10 border border-cream/10 rounded-2xl p-6">
+              <h2 className="text-cream/40 text-xs uppercase tracking-widest mb-5">
+                Scent DNA
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div>
+                  <p className="text-cream/50 text-xs uppercase tracking-widest mb-1">Families</p>
+                  <p className="text-cream/90 text-sm leading-relaxed">{scentDna.families.join(", ")}</p>
+                </div>
+                <div>
+                  <p className="text-cream/50 text-xs uppercase tracking-widest mb-1">Accords</p>
+                  <p className="text-cream/90 text-sm leading-relaxed">{scentDna.accords.join(", ")}</p>
+                </div>
+                <div>
+                  <p className="text-cream/50 text-xs uppercase tracking-widest mb-1">Sweetness</p>
+                  <p className="text-cream/90 text-sm leading-relaxed">{scentDna.sweetness}</p>
+                </div>
+                <div>
+                  <p className="text-cream/50 text-xs uppercase tracking-widest mb-1">Darkness</p>
+                  <p className="text-cream/90 text-sm leading-relaxed">{scentDna.darkness}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-cream/50 text-xs uppercase tracking-widest mb-1">Texture</p>
+                  <p className="text-cream/90 text-sm leading-relaxed">{scentDna.texture}</p>
+                </div>
+              </div>
             </section>
             <section className="border-t border-cream/10 pt-6 mb-8">
               <h2 className="text-cream/40 text-xs uppercase tracking-widest mb-3">
@@ -154,6 +199,34 @@ export default function QuizResultPage() {
                   <dd className="text-cream font-medium">{profile.accent}</dd>
                 </div>
               </dl>
+            </section>
+
+            <section className="p-6 border border-cream/10 mb-12 rounded-2xl">
+              <h2 className="text-cream/40 text-xs uppercase tracking-widest mb-5">
+                Scent DNA
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div>
+                  <p className="text-cream/50 text-xs uppercase tracking-widest mb-1">Families</p>
+                  <p className="text-cream/90 text-sm leading-relaxed">{scentDna.families.join(", ")}</p>
+                </div>
+                <div>
+                  <p className="text-cream/50 text-xs uppercase tracking-widest mb-1">Accords</p>
+                  <p className="text-cream/90 text-sm leading-relaxed">{scentDna.accords.join(", ")}</p>
+                </div>
+                <div>
+                  <p className="text-cream/50 text-xs uppercase tracking-widest mb-1">Sweetness</p>
+                  <p className="text-cream/90 text-sm leading-relaxed">{scentDna.sweetness}</p>
+                </div>
+                <div>
+                  <p className="text-cream/50 text-xs uppercase tracking-widest mb-1">Darkness</p>
+                  <p className="text-cream/90 text-sm leading-relaxed">{scentDna.darkness}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-cream/50 text-xs uppercase tracking-widest mb-1">Texture</p>
+                  <p className="text-cream/90 text-sm leading-relaxed">{scentDna.texture}</p>
+                </div>
+              </div>
             </section>
           </>
         )}

@@ -58,6 +58,9 @@ const MOCK_COLLECTION_RESULT_STATIC: Omit<CollectionResult, "score" | "scoreBrea
       category: "Fresh Woody",
       note: "Versatile daily wear that fills your fresh gap.",
       isSponsored: false,
+      role: "SAFE",
+      confidence: 0.82,
+      whyThisWorks: "It matches your clean-forward preference and stays effortless across everyday settings.",
     },
     {
       id: "2",
@@ -66,6 +69,9 @@ const MOCK_COLLECTION_RESULT_STATIC: Omit<CollectionResult, "score" | "scoreBrea
       category: "Woody Citrus",
       note: "Earthy, refined—fits your woody preference with a green twist.",
       isSponsored: false,
+      role: "BOLD",
+      confidence: 0.74,
+      whyThisWorks: "The bright citrus lift keeps it polished, while the woody structure gives you presence without heaviness.",
     },
     {
       id: "3",
@@ -74,6 +80,9 @@ const MOCK_COLLECTION_RESULT_STATIC: Omit<CollectionResult, "score" | "scoreBrea
       category: "Fresh Aquatic",
       note: "Classic summer staple you're missing.",
       isSponsored: false,
+      role: "NICHE",
+      confidence: 0.69,
+      whyThisWorks: "The aquatic freshness adds an easy seasonal contrast to your warmer profile.",
     },
     {
       id: "4",
@@ -82,6 +91,9 @@ const MOCK_COLLECTION_RESULT_STATIC: Omit<CollectionResult, "score" | "scoreBrea
       category: "Woody",
       note: "Cult favorite that deepens your woody range.",
       isSponsored: false,
+      role: "VERSATILE",
+      confidence: 0.71,
+      whyThisWorks: "It’s woody and refined enough for daily wear, with a distinctive texture that still feels wearable.",
     },
     {
       id: "5",
@@ -90,6 +102,9 @@ const MOCK_COLLECTION_RESULT_STATIC: Omit<CollectionResult, "score" | "scoreBrea
       category: "Leather",
       note: "Adds edge and evening presence to your collection.",
       isSponsored: true,
+      role: "WILDCARD",
+      confidence: 0.78,
+      whyThisWorks: "Your profile benefits from a darker, bolder anchor—this delivers intensity with a sophisticated finish.",
     },
   ],
   layeringSuggestions: [
@@ -126,6 +141,9 @@ export const MOCK_QUIZ_RESULT: QuizResult = {
       category: "Skin Scent / Woody",
       note: "Minimal, clean, almost invisible—fits your preference.",
       isSponsored: false,
+      role: "SAFE",
+      confidence: 0.76,
+      whyThisWorks: "It leans clean and skin-close, aligning with your refined, not-too-heavy approach.",
     },
     {
       id: "q2",
@@ -134,6 +152,9 @@ export const MOCK_QUIZ_RESULT: QuizResult = {
       category: "Fresh Woody",
       note: "Light, breezy, perfect for your profile.",
       isSponsored: false,
+      role: "BOLD",
+      confidence: 0.72,
+      whyThisWorks: "The fresh-green personality stays uplifting while the woody base keeps it balanced and wearable.",
     },
     {
       id: "q3",
@@ -142,6 +163,9 @@ export const MOCK_QUIZ_RESULT: QuizResult = {
       category: "Fresh Woody",
       note: "Clean pine and vanilla—refined and wearable.",
       isSponsored: false,
+      role: "NICHE",
+      confidence: 0.68,
+      whyThisWorks: "It adds a slightly more intriguing depth without drifting into overly sweet territory.",
     },
   ],
 };

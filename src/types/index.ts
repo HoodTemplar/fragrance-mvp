@@ -64,6 +64,18 @@ export interface RecommendedFragrance {
   brand: string;
   category: string;
   note: string;
+  /**
+   * Confidence in this recommendation for the current user/inputs.
+   * Stored as 0..1 so UI can render as a percentage.
+   */
+  confidence?: number;
+
+  /**
+   * Expert explanation (pre-polish / rule-based) for why this fragrance fits.
+   * Used for "Why this works for you" UI.
+   */
+  whyThisWorks?: string;
+
   /** When true, show "Sponsored" badge and track clicks for future monetization */
   isSponsored?: boolean;
   /** Optional. When set, clicks are attributed to this sponsor slot (for billing/analytics). */

@@ -643,11 +643,21 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
                 : "Role: WILDCARD — the unexpected-but-aligned pick that adds personality to your lineup.";
 
       const reason = `${why} When to wear: ${when}. ${roleLine}`;
-      picked.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason });
+      const confidence = Math.max(0, Math.min(1, best.combined / 100));
+      picked.push({
+        id: f.id,
+        name: f.name,
+        brand: f.brand,
+        category: f.category,
+        reason,
+        role,
+        confidence,
+        whyThisWorks: why,
+      });
     }
   }
 
-  for (const { f } of pool) {
+  for (const { f, s } of pool) {
     if (picked.length >= 5) break;
     if (usedIds.has(f.id) || usedKeys.has(canonicalKey(f)) || isTooSimilar(f, pickedFragrances)) continue;
     usedIds.add(f.id);
@@ -656,7 +666,8 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     const why = buildRecommendationExplanation(userContext, f, getCachedProfile(f));
     const when = whenToWearLabel(f);
     const reason = `${why} When to wear: ${when}. Role: EXTRA — backfilled to keep your 5-fragrance set complete.`;
-    picked.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason });
+    const confidence = Math.max(0, Math.min(1, (s - minMainScore) / mainScoreRange));
+    picked.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason, confidence, whyThisWorks: why });
   }
 
   while (picked.length < 5 && candidates.length > 0) {
@@ -670,7 +681,17 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     const why = buildRecommendationExplanation(userContext, next, getCachedProfile(next));
     const when = whenToWearLabel(next);
     const reason = `${why} When to wear: ${when}. Role: EXTRA — backfilled to keep your 5-fragrance set complete.`;
-    picked.push({ id: next.id, name: next.name, brand: next.brand, category: next.category, reason });
+    const nextMainScore = withScores.find((x) => x.f.id === next.id)?.s ?? minMainScore;
+    const confidence = Math.max(0, Math.min(1, (nextMainScore - minMainScore) / mainScoreRange));
+    picked.push({
+      id: next.id,
+      name: next.name,
+      brand: next.brand,
+      category: next.category,
+      reason,
+      confidence,
+      whyThisWorks: why,
+    });
   }
 
   // Deduplicate by id and by (brand, name) so the same fragrance never appears twice (e.g. catalog has "naxos" and "xerjoff-naxos")
@@ -686,7 +707,7 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
   }
 
   // Backfill to exactly 5 from next highest-ranked (withScores order), preserving diversity by taking best-available
-  for (const { f } of withScores) {
+  for (const { f, s } of withScores) {
     if (unique.length >= 5) break;
     const key = canonicalKey(f);
     if (seenIds.has(f.id) || seenKeys.has(key)) continue;
@@ -696,7 +717,8 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     const why = buildRecommendationExplanation(userContext, f, fragProfile);
     const when = whenToWearLabel(f);
     const reason = `${why} When to wear: ${when}. Role: EXTRA — backfilled from the next best candidates.`;
-    unique.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason });
+    const confidence = Math.max(0, Math.min(1, (s - minMainScore) / mainScoreRange));
+    unique.push({ id: f.id, name: f.name, brand: f.brand, category: f.category, reason, confidence, whyThisWorks: why });
   }
 
   const pickedFinal = unique.slice(0, 5);

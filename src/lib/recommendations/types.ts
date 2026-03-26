@@ -3,6 +3,7 @@
  */
 
 import type { CatalogFragrance } from "@/data/fragranceCatalog";
+import type { RecommendationRole } from "@/types";
 
 export type GenderPreference = "masculine" | "feminine" | "unisex" | "open";
 
@@ -39,6 +40,24 @@ export interface PickedFragrance {
   category: string;
   /** Why we picked it (for AI to turn into polished note) */
   reason: string;
+
+  /**
+   * Optional curated role for slotting in the recommendations UI.
+   * (Undefined for backfilled "EXTRA" picks.)
+   */
+  role?: RecommendationRole;
+
+  /**
+   * Confidence in this pick for the current user inputs (0..1).
+   * Used for UI confidence badges.
+   */
+  confidence?: number;
+
+  /**
+   * Expert explanation (rule-based, not the polished note).
+   * Used for the "Why this works for you" layer.
+   */
+  whyThisWorks?: string;
 }
 
 /** One layering suggestion (for AI to turn into one sentence) */
@@ -69,6 +88,10 @@ export interface PolishedRecommendations {
     category: string;
     note: string;
     isSponsored?: boolean;
+
+    confidence?: number;
+    whyThisWorks?: string;
+    role?: RecommendationRole;
   }>;
   layeringSuggestions: string[];
   whenToWear: string[];

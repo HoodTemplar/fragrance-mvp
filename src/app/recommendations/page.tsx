@@ -12,8 +12,11 @@ import SaveResultButton from "@/components/SaveResultButton";
 import RecommendationCard from "@/components/RecommendationCard";
 import { trackEvent } from "@/lib/events";
 import { MOCK_QUIZ_RESULT, MOCK_COLLECTION_RESULT } from "@/lib/mockData";
+import { QUIZ_QUESTIONS } from "@/data/quizQuestions";
 import type { ScentProfile, QuizResult, CollectionResult } from "@/types";
 import type { RecommendedFragrance } from "@/types";
+import type { RecommendationRole } from "@/types";
+import { mapQuizAnswersToEngine } from "@/lib/quizToEngineMap";
 
 const QUIZ_RESULT_KEY = "scent-dna-quiz-result";
 const COLLECTION_RESULT_KEY = "scent-dna-collection-result";
@@ -31,6 +34,10 @@ function RecommendationsContent() {
   const [recommendations, setRecommendations] = useState<RecommendedFragrance[]>([]);
   const [layeringSuggestions, setLayeringSuggestions] = useState<string[]>([]);
   const [whenToWear, setWhenToWear] = useState<string[]>([]);
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, string> | null>(null);
+  const [draftAnswers, setDraftAnswers] = useState<Record<string, string> | null>(null);
+  const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState<string | null>(null);
   const [saveData, setSaveData] = useState<QuizResult | CollectionResult | null>(null);
   const [saveType, setSaveType] = useState<"quiz" | "collection">("quiz");
   const recommendationViewedFired = useRef(false);
@@ -49,7 +56,11 @@ function RecommendationsContent() {
       const raw = typeof window !== "undefined" ? sessionStorage.getItem(QUIZ_RESULT_KEY) : null;
       if (raw) {
         try {
-          const data = JSON.parse(raw) as { profile: ScentProfile; recommendations?: RecommendationsData };
+          const data = JSON.parse(raw) as {
+            profile: ScentProfile;
+            recommendations?: RecommendationsData;
+            quizAnswers?: Record<string, string>;
+          };
           setProfile(data.profile ?? null);
           if (data.recommendations) {
             setRecommendations(data.recommendations.recommendedFragrances ?? []);
@@ -58,6 +69,8 @@ function RecommendationsContent() {
           } else {
             setRecommendations(MOCK_QUIZ_RESULT.recommendations);
           }
+          setQuizAnswers(data.quizAnswers ?? null);
+          setDraftAnswers(data.quizAnswers ?? null);
           setSaveData({
             profile: data.profile,
             recommendations: data.recommendations?.recommendedFragrances ?? MOCK_QUIZ_RESULT.recommendations,
@@ -66,12 +79,16 @@ function RecommendationsContent() {
         } catch {
           setProfile(MOCK_QUIZ_RESULT.profile);
           setRecommendations(MOCK_QUIZ_RESULT.recommendations);
+          setQuizAnswers(null);
+          setDraftAnswers(null);
           setSaveData(MOCK_QUIZ_RESULT);
           setSaveType("quiz");
         }
       } else {
         setProfile(MOCK_QUIZ_RESULT.profile);
         setRecommendations(MOCK_QUIZ_RESULT.recommendations);
+        setQuizAnswers(null);
+        setDraftAnswers(null);
         setSaveData(MOCK_QUIZ_RESULT);
         setSource("quiz");
       }
@@ -144,23 +161,202 @@ function RecommendationsContent() {
           )}
         </header>
 
-        {/* 5 fragrances — feature cards */}
-        <section className="mb-16">
-          <h2 className="font-serif text-xl text-charcoal/70 mb-8">
-            5 fragrances to consider
-          </h2>
-          <ul className="space-y-6">
-            {displayRecs.map((rec, i) => (
-              <RecommendationCard
-                key={rec.id}
-                recommendation={rec}
-                index={i}
-                pageContext="recommendations_page"
-                variant="editorial"
-              />
-            ))}
-          </ul>
-        </section>
+        {fromQuiz && quizAnswers && (
+          <section className="mb-14 p-5 md:p-6 border border-charcoal/10 rounded-2xl bg-white/60">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-serif text-xl text-charcoal mb-1">Refine your preferences</h2>
+                <p className="text-sm text-charcoal/70 leading-relaxed">
+                  Adjust a few key choices, then re-run recommendations instantly.
+                </p>
+              </div>
+            </div>
+
+            {draftAnswers && (
+              <div className="mt-5 space-y-4">
+                {(() => {
+                  const q8 = QUIZ_QUESTIONS.find((q) => q.id === "q8");
+                  const q4 = QUIZ_QUESTIONS.find((q) => q.id === "q4");
+                  const q7 = QUIZ_QUESTIONS.find((q) => q.id === "q7");
+                  const avoidSweetEnabled = draftAnswers.q7 === "turnoff_sweet";
+                  const baseQ7 = quizAnswers.q7 ?? "turnoff_heavy";
+                  const setDraft = (patch: Partial<Record<string, string>>) => {
+                    setDraftAnswers((prev) => {
+                      if (!prev) return prev;
+                      // Spread of a Partial can introduce `undefined` in TS; we guarantee patch values are strings.
+                      return { ...prev, ...patch } as Record<string, string>;
+                    });
+                  };
+
+                  return (
+                    <>
+                      <div>
+                        <label className="block text-xs uppercase tracking-widest text-charcoal/60 mb-2">
+                          Scent direction
+                        </label>
+                        <select
+                          className="w-full p-3 border border-charcoal/15 rounded-lg bg-white"
+                          value={draftAnswers.q8 ?? ""}
+                          onChange={(e) => setDraft({ q8: e.target.value })}
+                        >
+                          {(q8?.options ?? []).map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs uppercase tracking-widest text-charcoal/60 mb-2">
+                          Intensity / projection
+                        </label>
+                        <select
+                          className="w-full p-3 border border-charcoal/15 rounded-lg bg-white"
+                          value={draftAnswers.q4 ?? ""}
+                          onChange={(e) => setDraft({ q4: e.target.value })}
+                        >
+                          {(q4?.options ?? []).map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-widest text-charcoal/60">Avoid sweet</p>
+                          <p className="text-sm text-charcoal/75 mt-1">
+                            {avoidSweetEnabled ? "On (keep it dry & elegant)" : "Off (allow sweetness notes)"}
+                          </p>
+                        </div>
+                        <label className="inline-flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={avoidSweetEnabled}
+                            onChange={(e) =>
+                              setDraft({
+                                q7: e.target.checked ? "turnoff_sweet" : baseQ7 === "turnoff_sweet" ? "turnoff_heavy" : baseQ7,
+                              })
+                            }
+                          />
+                          <span className="text-sm text-charcoal/80">{(q7?.options ?? []).find((o) => o.value === "turnoff_sweet")?.label ?? "Avoid sweet"}</span>
+                        </label>
+                      </div>
+                    </>
+                  );
+                })()}
+
+                {refineError && <p className="text-sm text-red-600">{refineError}</p>}
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!draftAnswers) return;
+                    setRefining(true);
+                    setRefineError(null);
+                    try {
+                      const res = await fetch("/api/recommendations/refine", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ quizAnswers: draftAnswers }),
+                      });
+                      if (!res.ok) {
+                        const msg = await res.text().catch(() => "");
+                        throw new Error(msg || `Refine failed (${res.status})`);
+                      }
+                      const data = (await res.json()) as {
+                        recommendedFragrances: RecommendedFragrance[];
+                        layeringSuggestions: string[];
+                        whenToWear: string[];
+                      };
+
+                      setRecommendations(data.recommendedFragrances ?? []);
+                      setLayeringSuggestions(data.layeringSuggestions ?? []);
+                      setWhenToWear(data.whenToWear ?? []);
+
+                      if (typeof window !== "undefined" && profile) {
+                        const quizPreferences = mapQuizAnswersToEngine(draftAnswers);
+                        sessionStorage.setItem(
+                          QUIZ_RESULT_KEY,
+                          JSON.stringify({
+                            profile,
+                            recommendations: {
+                              recommendedFragrances: data.recommendedFragrances,
+                              layeringSuggestions: data.layeringSuggestions,
+                              whenToWear: data.whenToWear,
+                            },
+                            quizAnswers: draftAnswers,
+                            quizPreferences,
+                          })
+                        );
+                      }
+
+                      if (profile) {
+                        setSaveData({ profile, recommendations: data.recommendedFragrances });
+                      }
+                    } catch (e) {
+                      setRefineError(e instanceof Error ? e.message : "Refine failed");
+                    } finally {
+                      setRefining(false);
+                    }
+                  }}
+                  disabled={refining}
+                  className="w-full py-3 rounded-lg text-sm font-medium bg-charcoal text-cream hover:opacity-95 disabled:opacity-50 transition-colors"
+                >
+                  {refining ? "Re-running…" : "Refine & re-run"}
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Role-based sections */}
+        {(() => {
+          const rolesOrder: RecommendationRole[] = ["SAFE", "BOLD", "NICHE", "VERSATILE", "WILDCARD"];
+          const recsWithRole = displayRecs.map((rec, i) => ({
+            ...rec,
+            _role: rec.role ?? rolesOrder[i],
+          }));
+
+          const targets: Array<{ key: string; title: string; role: RecommendationRole }> = [
+            { key: "signature", title: "Signature scent", role: "WILDCARD" },
+            { key: "compliment", title: "Compliment puller", role: "BOLD" },
+            { key: "date", title: "Date night", role: "NICHE" },
+            { key: "professional", title: "Professional", role: "SAFE" },
+            { key: "boldniche", title: "Bold/niche", role: "NICHE" },
+            { key: "versatile", title: "Versatile", role: "VERSATILE" },
+          ];
+
+          const used = new Set<string>();
+          const selectedPerTarget = targets.map((t) => {
+            const found = recsWithRole.find((r) => r._role === t.role && !used.has(r.id)) ?? null;
+            if (found) used.add(found.id);
+            return { target: t, rec: found };
+          });
+
+          return (
+            <section className="mb-16 space-y-10">
+              {selectedPerTarget.map(({ target, rec }) => (
+                <div key={target.key} className="space-y-4">
+                  <h2 className="font-serif text-xl text-charcoal/70">{target.title}</h2>
+                  {rec ? (
+                    <ul className="space-y-6">
+                      <RecommendationCard recommendation={rec} pageContext="recommendations_page" variant="editorial" role={target.role} />
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-charcoal/60 leading-relaxed">
+                      {target.key === "boldniche"
+                        ? "Your Date-night pick already covers your bold/niche moment."
+                        : "No additional pick for this slot."}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </section>
+          );
+        })()}
 
         {/* Layering — minimal */}
         {layeringSuggestions.length > 0 && (
