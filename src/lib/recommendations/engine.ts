@@ -142,6 +142,14 @@ function normalize(s: string): string {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function buildCatalogVibeText(f: CatalogFragrance): string {
+  // Many DB rows have sparse `vibe`. For matching only, we blend in other stable signals
+  // so vibe matching doesn't silently collapse to "no match".
+  const accords = (f.accords ?? []).join(" ");
+  const parts = [f.vibe ?? "", f.category ?? "", accords, f.styleCluster ?? ""];
+  return normalize(parts.filter(Boolean).join(" "));
+}
+
 /** Fisher–Yates shuffle (mutates array). */
 function shuffle<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -380,7 +388,7 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
       scentMatches === 0 ? 10 : Math.round((scentMatches / Math.max(1, userAccords.length)) * 100);
 
     // 2) vibe
-    const vibeStrength = userVibe ? vibeMatchStrength(userVibe, f.vibe ?? "") : 0;
+    const vibeStrength = userVibe ? vibeMatchStrength(userVibe, buildCatalogVibeText(f)) : 0;
     const vibeScore = vibeStrength === 2 ? 100 : vibeStrength === 1 ? 70 : 30;
 
     // 3) texture
@@ -561,7 +569,7 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
 
     const familyRatio = userAccordMatches / Math.max(1, userAccords.length);
 
-    const vibeStrength = userVibe ? vibeMatchStrength(userVibe, f.vibe ?? "") : 0;
+    const vibeStrength = userVibe ? vibeMatchStrength(userVibe, buildCatalogVibeText(f)) : 0;
     const vibeNorm = vibeStrength === 2 ? 1 : vibeStrength === 1 ? 0.65 : 0.25;
 
     const settingOverlap = occasions.filter((o) => userOccasions.includes(o)).length;
