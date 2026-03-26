@@ -217,6 +217,25 @@ export async function getRecommendationsForQuiz(
   } else {
     console.log("[recommendations] Using fallback catalog (fragranceCatalog.ts).");
   }
+
+  // Personalize "missing category" gap boost so we don't give every user the same advantage.
+  // These keywords feed into `categoryMatchesGap()` which matches via word overlap.
+  const missingCategories = (() => {
+    const family = enginePreferences.q1;
+    switch (family) {
+      case "fresh":
+        return ["Woody", "Amber", "Oriental"];
+      case "sweet":
+        return ["Fresh", "Woody", "Oriental"];
+      case "woody":
+        return ["Fresh", "Floral", "Amber"];
+      case "spicy":
+        return ["Fresh", "Floral", "Woody"];
+      default:
+        return ["Fresh", "Woody", "Floral", "Amber", "Oriental"];
+    }
+  })();
+
   const quizAnswersForEngine: Record<string, string> = {
     q1: enginePreferences.q1,
     q2: enginePreferences.q2,
@@ -226,10 +245,11 @@ export async function getRecommendationsForQuiz(
     q8: enginePreferences.q8,
     q9: enginePreferences.q9,
     q11: enginePreferences.q11,
+    q7: quizAnswers.q7 ?? "",
   };
   const engineOutput = runRecommendationEngine({
     detectedFragrances: [],
-    missingCategories: ["Fresh", "Woody", "Floral", "Amber", "Oriental"],
+    missingCategories,
     strengths: [],
     weaknesses: [],
     quizAnswers: quizAnswersForEngine,

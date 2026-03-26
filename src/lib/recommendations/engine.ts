@@ -108,13 +108,13 @@ const LONGEVITY_MAP: Record<string, string[]> = {
 
 /** User vibe <-> catalog vibe: synonym mapping for scoring. */
 const VIBE_SYNONYMS: Record<string, string[]> = {
-  seductive: ["sensual", "daring", "bold", "dark", "mysterious"],
-  adventurous: ["bold", "unusual", "edgy"],
-  timeless: ["classic", "refined", "elegant"],
-  clean: ["fresh", "minimal", "airy"],
-  fresh: ["clean", "airy", "minimal"],
-  mysterious: ["dark", "seductive", "bold", "intense"],
-  warm: ["spicy", "amber", "cozy", "rich"],
+  seductive: ["sensual", "romantic", "daring", "attractive", "glamorous", "bold", "dark", "mysterious"],
+  adventurous: ["adventurous", "bold", "unusual", "edgy", "sporty", "iconic"],
+  timeless: ["classic", "refined", "elegant", "sophisticated", "iconic", "luxurious", "modern"],
+  clean: ["fresh", "minimal", "airy", "crisp", "clean", "polished", "light"],
+  fresh: ["clean", "airy", "minimal", "crisp", "fresh"],
+  mysterious: ["dark", "seductive", "bold", "intense", "noir", "mysterious", "opulent"],
+  warm: ["spicy", "amber", "cozy", "rich", "warm", "balsamic"],
 };
 
 /** Returns 2 = exact match, 1 = synonym match, 0 = no match. */
@@ -123,6 +123,7 @@ function vibeMatchStrength(userVibe: string, catalogVibe: string): 0 | 1 | 2 {
   const u = normalize(userVibe);
   const c = normalize(catalogVibe);
   if (u === c) return 2;
+  if (c.includes(u)) return 2;
   const catalogWords = c.split(/\s+/).filter(Boolean);
   const userSynonyms = VIBE_SYNONYMS[u];
   if (userSynonyms?.some((v) => catalogWords.some((w) => w === v || w.includes(v)))) return 1;
@@ -195,6 +196,8 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
   const userVibe = normalize(quizAnswers.q8 ?? "");
   const userLongevityPref = (quizAnswers.q9 ?? "day") as string;
   const userLongevityMatch = LONGEVITY_MAP[userLongevityPref] ?? LONGEVITY_MAP.day;
+  const userLongevityNumeric = userLongevityPref === "short" ? 1 : userLongevityPref === "trail" ? 5 : 3;
+  const q7Turnoff = (quizAnswers.q7 ?? "") as string;
 
   const familyClusters = FAMILY_STYLE_CLUSTERS[family] ?? [];
   const occasionClusters = OCCASION_STYLE_CLUSTERS[occasion] ?? [];
@@ -370,35 +373,33 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
       if (accords.some((c) => normalize(c) === normalize(ua) || normalize(c).includes(normalize(ua)))) scentMatches += 1;
     }
     const scentFamilyScore =
-      scentMatches >= 4 ? 100 :
-      scentMatches === 3 ? 80 :
-      scentMatches === 2 ? 60 :
-      scentMatches === 1 ? 40 : -20;
+      scentMatches === 0 ? 10 : Math.round((scentMatches / Math.max(1, userAccords.length)) * 100);
 
     // 2) vibe
     const vibeStrength = userVibe ? vibeMatchStrength(userVibe, f.vibe ?? "") : 0;
-    const vibeScore = vibeStrength === 2 ? 100 : vibeStrength === 1 ? 60 : -20;
+    const vibeScore = vibeStrength === 2 ? 100 : vibeStrength === 1 ? 70 : 30;
 
     // 3) texture
     const fragTexture = deriveTextureToken(f);
     const textureScore =
-      fragTexture === userTexture ? 90 :
-      textureGroup(fragTexture) === textureGroup(userTexture) ? 60 : -15;
+      fragTexture === userTexture ? 100 :
+      textureGroup(fragTexture) === textureGroup(userTexture) ? 70 : 35;
 
     // 4) setting
     const occasionMatches = f.occasions.filter((o) => userOccasions.includes(o));
+    const maxSetting = Math.max(1, Math.min(3, userOccasions.length));
     const settingScore =
-      occasionMatches.length >= 3 ? 100 :
-      occasionMatches.length === 2 ? 80 :
-      occasionMatches.length === 1 ? 60 : -15;
+      occasionMatches.length === 0
+        ? 20
+        : Math.round((Math.min(occasionMatches.length, maxSetting) / maxSetting) * 100);
 
     // 5) intensity (projection)
     const fragIntensity = deriveProjectionNumeric(f);
     const diff = Math.abs(fragIntensity - userIntensityNumeric);
-    const intensityScore =
-      diff === 0 ? 100 :
-      diff === 1 ? 70 :
-      diff === 2 ? 45 : -20;
+    const intensityScore = Math.max(0, Math.round(100 - diff * 25));
+
+    // Longevity match (so users who want a "short stay" get shorter wear)
+    const fragLongevityNumeric = deriveLongevityNumeric(f);
 
     // 6) season
     let seasonScore = 50;
@@ -406,41 +407,55 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
       const overlap = f.seasons.filter((se) =>
         userPreferredSeasons.some((us) => normalize(us) === normalize(se))
       ).length;
-      seasonScore = overlap >= 2 ? 100 : overlap === 1 ? 70 : -15;
-      if (f.seasons.includes("all")) seasonScore = 80;
+      if (f.seasons.includes("all")) {
+        seasonScore = 80;
+      } else {
+        const maxOverlap = Math.max(1, Math.min(2, userPreferredSeasons.length));
+        const ratio = overlap / maxOverlap;
+        seasonScore = overlap === 0 ? 20 : Math.round(20 + ratio * 80);
+      }
     }
 
     // 7) familiarity
     const fragFamiliarity = deriveFamiliarityToken(f);
-    let familiarityScore = -10;
+    let familiarityScore = 30;
     if (fragFamiliarity === userFamiliarity) familiarityScore = 85;
-    else if (userFamiliarity === "distinctive") familiarityScore = fragFamiliarity === "challenging" ? 40 : 60;
+    else if (userFamiliarity === "distinctive") familiarityScore = fragFamiliarity === "challenging" ? 55 : 65;
     else if (userFamiliarity === "mass_appeal") {
       familiarityScore =
-        fragFamiliarity === "distinctive" ? 60 :
-        fragFamiliarity === "niche_collectable" ? 40 :
-        fragFamiliarity === "challenging" ? -20 : 50;
+        fragFamiliarity === "distinctive" ? 65 :
+        fragFamiliarity === "niche_collectable" ? 50 :
+        fragFamiliarity === "challenging" ? 30 : 55;
     } else if (userFamiliarity === "niche_collectable") {
       familiarityScore =
-        fragFamiliarity === "mass_appeal" ? 35 :
+        fragFamiliarity === "mass_appeal" ? 45 :
         fragFamiliarity === "niche_collectable" ? 85 :
         fragFamiliarity === "challenging" ? 70 : 60;
     }
 
+    // 0) style intent (quiz-derived)
+    const styleScore = userPreferredStyleClusters.length
+      ? userPreferredStyleClusters.includes(f.styleCluster)
+        ? 100
+        : 25
+      : 50;
+
     // Weighted total: dominant scent_family + vibe
     const weights = {
-      scent_family: 28,
-      vibe: 22,
-      texture: 12,
-      setting: 15,
+      scent_family: 26,
+      vibe: 20,
+      style_intent: 10,
+      texture: 10,
+      setting: 14,
       intensity: 12,
       season: 6,
-      familiarity: 5,
+      familiarity: 2,
     } as const;
 
     const baseTotal =
       (scentFamilyScore * weights.scent_family +
         vibeScore * weights.vibe +
+        styleScore * weights.style_intent +
         textureScore * weights.texture +
         settingScore * weights.setting +
         intensityScore * weights.intensity +
@@ -455,6 +470,22 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
       else if (f.gender !== "unisex") constraintAdjust -= 18;
     }
 
+    // Apply longevity user preference (q9 / derived from turnoffs)
+    const longevityDiff = Math.abs(fragLongevityNumeric - userLongevityNumeric);
+    if (longevityDiff === 0) constraintAdjust += 10;
+    else if (longevityDiff === 1) constraintAdjust += 4;
+    else if (longevityDiff === 2) constraintAdjust -= 6;
+    else constraintAdjust -= 12;
+
+    // Apply non-sweet turnoffs from q7.
+    if (q7Turnoff === "turnoff_powdery" && fragTexture === "powdery") constraintAdjust -= 26;
+    if (q7Turnoff === "turnoff_heavy" && (fragLongevityNumeric >= 5 || fragIntensity >= 4)) constraintAdjust -= 30;
+    if (q7Turnoff === "turnoff_loud" && fragIntensity >= 4) constraintAdjust -= 30;
+    if (q7Turnoff === "turnoff_sharp") {
+      const fragVibe = normalize(f.vibe ?? "");
+      if (fragVibe.includes("sharp") || fragIntensity >= 4) constraintAdjust -= 24;
+    }
+
     if (avoidSweet) {
       const sweetish = accords.filter((a) => /vanilla|gourmand|sweet|tonka|caramel|amber/.test(a)).length;
       if (sweetish >= 2) constraintAdjust -= 35;
@@ -465,7 +496,7 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     }
 
     if (missingCategories.length > 0 && categoryMatchesGap(f.category, missingCategories)) {
-      constraintAdjust += 12;
+      constraintAdjust += 7;
     }
 
     return baseTotal + constraintAdjust;
@@ -511,45 +542,96 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     const isNicheBrand = f.designerNiche === "niche";
     const accords = (f.accords ?? []).map((a) => normalize(a));
 
-    let safe = 0;
-    if (["daily-office", "fresh-clean"].includes(cluster)) safe += 35;
-    if (fragProfile.versatility >= 50) safe += 25;
-    if (occasions.length >= 3) safe += 15;
-    if (proj === "moderate" || proj === "intimate") safe += 15;
-    if (f.priceTier === "designer" || f.priceTier === "luxury") safe += 10;
+    const fragProjNumeric = deriveProjectionNumeric(f);
+    const fragLonNumeric = deriveLongevityNumeric(f);
 
-    let bold = 0;
-    if (proj === "strong" || proj === "bold") bold += 30;
-    if (long === "long") bold += 20;
-    if (["date-night", "spicy-oriental", "dark-woody"].includes(cluster)) bold += 25;
-    if (/bold|seductive|intense|powerful|opulent/.test(vibe)) bold += 25;
+    // User-anchored base: how well does this fragrance match *the user's intent*?
+    const userAccordMatches = (() => {
+      let hits = 0;
+      for (const ua of userAccords) {
+        const nu = normalize(ua);
+        if (accords.some((c) => normalize(c) === nu || normalize(c).includes(nu))) hits += 1;
+      }
+      return hits;
+    })();
 
-    let niche = 0;
-    if (isNichePrice) niche += 35;
-    if (isNicheBrand) niche += 25;
-    if (cluster === "luxury-niche") niche += 25;
-    if (/artistic|unique|refined|opulent/.test(vibe)) niche += 15;
+    const familyRatio = userAccordMatches / Math.max(1, userAccords.length);
 
-    let versatile = 0;
-    if (occasions.length >= 3) versatile += 25;
-    if (seasons.length >= 2) versatile += 20;
-    if (fragProfile.versatility >= 60) versatile += 30;
-    if (accords.length >= 3) versatile += 25;
+    const vibeStrength = userVibe ? vibeMatchStrength(userVibe, f.vibe ?? "") : 0;
+    const vibeNorm = vibeStrength === 2 ? 1 : vibeStrength === 1 ? 0.65 : 0.25;
 
-    let wildcard = 0;
-    const primaryRoleScore = Math.max(safe, bold, niche, versatile);
-    if (primaryRoleScore < 60) wildcard += 40;
-    if (accords.some((a) => /oud|incense|leather|unusual|smoky/.test(a))) wildcard += 25;
-    if (fragProfile.versatility >= 40 && fragProfile.versatility <= 70) wildcard += 20;
-    wildcard += Math.min(15, accords.length * 3);
+    const settingOverlap = occasions.filter((o) => userOccasions.includes(o)).length;
+    const settingNorm = settingOverlap / Math.max(1, userOccasions.length);
+
+    const styleMatch = userPreferredStyleClusters.includes(cluster) ? 1 : 0;
+
+    const intentBase = familyRatio * 45 + vibeNorm * 25 + settingNorm * 20 + styleMatch * 10; // 0..100
+
+    const wantsDaily = userOccasions.includes("office") || userOccasions.includes("casual");
+    const wantsDate = userOccasions.includes("date") || userOccasions.includes("evening");
+
+    // Role-specific traits are *relative to the user's intent*, not generic stereotypes.
+    const intensityDiff = Math.abs(fragProjNumeric - userIntensityNumeric);
+    const intensityCloseness = Math.max(0, 100 - intensityDiff * 25);
+
+    const projNumeric = fragProjNumeric;
+    const intensityTraitBold = Math.max(0, Math.min(100, (projNumeric - userIntensityNumeric + 1) * 30));
+
+    const longTrait = fragLonNumeric >= userLongevityNumeric ? 100 : fragLonNumeric === 3 && userLongevityNumeric === 5 ? 70 : 50;
+
+    const dailyTrait = wantsDaily
+      ? occasions.some((o) => o === "office" || o === "casual") ? 100 : 55
+      : occasions.some((o) => o === "office" || o === "casual") ? 70 : 50;
+
+    const dateTrait = wantsDate
+      ? occasions.some((o) => o === "date" || o === "evening") ? 100 : 55
+      : occasions.some((o) => o === "date" || o === "evening") ? 70 : 50;
+
+    let safe = intentBase * 0.7 + intensityCloseness * 0.3;
+    safe = safe * (dailyTrait / 100);
+
+    let bold = intentBase * 0.55 + intensityTraitBold * 0.25 + longTrait * 0.2;
+    bold = bold * (dateTrait / 100);
+
+    let niche = intentBase * 0.55 + (isNichePrice || isNicheBrand ? 85 : 45) * 0.25;
+    niche = niche + (wantsDate ? 15 : 0);
+    niche = niche * (dateTrait / 100);
+
+    const versatileOcc = Math.min(100, (occasions.length / 4) * 100);
+    const versatileSeasons = Math.min(100, (seasons.length / 3) * 100);
+    const versatilityTrait = 0.5 * versatileOcc + 0.5 * versatileSeasons;
+    let versatile = intentBase * 0.6 + fragProfile.versatility * 0.25 + versatilityTrait * 0.15;
+
+    // Signature / wildcard: just the best user intent (diversity handled elsewhere)
+    let wildcard = intentBase;
+
+    // Clamp 0..100 for downstream combined score normalization
+    safe = Math.max(0, Math.min(100, safe));
+    bold = Math.max(0, Math.min(100, bold));
+    niche = Math.max(0, Math.min(100, niche));
+    versatile = Math.max(0, Math.min(100, versatile));
+    wildcard = Math.max(0, Math.min(100, wildcard));
 
     return {
-      SAFE: Math.min(100, safe),
-      BOLD: Math.min(100, bold),
-      NICHE: Math.min(100, niche),
-      VERSATILE: Math.min(100, versatile),
-      WILDCARD: Math.min(100, wildcard),
+      SAFE: safe,
+      BOLD: bold,
+      NICHE: niche,
+      VERSATILE: versatile,
+      WILDCARD: wildcard,
     };
+  }
+
+  /** Collapse catalog vibe strings into a token for diversity filtering. */
+  function deriveVibeToken(vibe: string): string {
+    const v = normalize(vibe ?? "");
+    if (!v) return "";
+    if (/clean|minimal|airy|fresh/.test(v)) return "clean";
+    if (/timeless|classic|refined|elegant|iconic/.test(v)) return "timeless";
+    if (/mysterious|dark|seductive|daring|opulent|intense|noir/.test(v)) return "mysterious";
+    if (/adventur|unusual|edgy|bold/.test(v)) return "adventurous";
+    if (/warm|spice|amber|cozy|rich/.test(v)) return "warm";
+    if (/sensual|silk|romantic/.test(v)) return "seductive";
+    return "";
   }
 
   /** True if f is too similar to any already-picked (same brand+cluster, or same category + heavy accord overlap). */
@@ -558,6 +640,9 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     const fFamily = deriveScentFamilyToken(f);
     const fTexture = deriveTextureToken(f);
     const fProj = deriveProjectionNumeric(f);
+    const fVibeToken = deriveVibeToken(f.vibe ?? "");
+    const fStyleCluster = f.styleCluster;
+    const fPriceTier = f.priceTier;
 
     for (const p of pickedSoFar) {
       const pAccords = new Set((p.accords ?? []).map((a) => normalize(a)));
@@ -566,18 +651,28 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
       const pFamily = deriveScentFamilyToken(p);
       const pTexture = deriveTextureToken(p);
       const pProj = deriveProjectionNumeric(p);
+      const pVibeToken = deriveVibeToken(p.vibe ?? "");
+
+      const styleSame = p.styleCluster === fStyleCluster;
+      const priceSame = p.priceTier === fPriceTier;
+      const projDiff = Math.abs(fProj - pProj);
+      const vibeSame = !!(fVibeToken && pVibeToken && fVibeToken === pVibeToken);
 
       // Hard duplicates / near-duplicates
       if (p.brand === f.brand && p.styleCluster === f.styleCluster) return true;
+
+      // Accord overlap is a strong signal, but can be missing; fall back to other traits.
       if (overlap >= 4) return true;
 
-      // Similar scent profile: same family + same texture + heavy accord overlap
-      const sameProfile = fFamily === pFamily && fTexture === pTexture && overlap >= 3;
-      const sameIntensity = Math.abs(fProj - pProj) <= 0;
-      if (sameProfile && sameIntensity) return true;
+      // Same family + same texture often feels similar; allow this even without heavy accord overlap.
+      const sameProfileBase = fFamily === pFamily && fTexture === pTexture;
+      if (sameProfileBase && (overlap >= 2 || (vibeSame && projDiff <= 1))) return true;
 
-      // Same cluster + partial overlap is also discouraged to keep variety
-      if (p.styleCluster === f.styleCluster && overlap >= 2) return true;
+      // If style cluster + vibe match, strongly discourage duplicates even when accords are incomplete.
+      if (styleSame && (overlap >= 2 || (vibeSame && projDiff <= 1))) return true;
+
+      // Ultra-similar when multiple trait axes align.
+      if (sameProfileBase && vibeSame && projDiff <= 1 && (styleSame || priceSame)) return true;
     }
 
     return false;
@@ -587,6 +682,51 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     return `${normalize(p.brand)}|${normalize(p.name)}`;
   }
 
+  /** Returns a diversity penalty for candidates that are similar to what's already picked. */
+  function similarityPenaltyToPicked(f: CatalogFragrance, pickedSoFar: CatalogFragrance[]): number {
+    if (pickedSoFar.length === 0) return 0;
+
+    const fAccords = new Set((f.accords ?? []).map((a) => normalize(a)));
+    const fFamily = deriveScentFamilyToken(f);
+    const fTexture = deriveTextureToken(f);
+    const fVibeToken = deriveVibeToken(f.vibe ?? "");
+    const fProj = deriveProjectionNumeric(f);
+    const fStyleCluster = f.styleCluster;
+    const fPriceTier = f.priceTier;
+
+    let maxPenalty = 0;
+    for (const p of pickedSoFar) {
+      const pAccords = new Set((p.accords ?? []).map((a) => normalize(a)));
+      const overlap = Array.from(fAccords).filter((a) => pAccords.has(a)).length;
+      const pFamily = deriveScentFamilyToken(p);
+      const pTexture = deriveTextureToken(p);
+      const pVibeToken = deriveVibeToken(p.vibe ?? "");
+      const pProj = deriveProjectionNumeric(p);
+      const projDiff = Math.abs(pProj - fProj);
+      const styleSame = p.styleCluster === fStyleCluster;
+      const priceSame = p.priceTier === fPriceTier;
+
+      const seasonOverlap =
+        (f.seasons ?? []).some((fs) => (p.seasons ?? []).some((ps) => normalize(fs) === normalize(ps))) ? 1 : 0;
+
+      let pPenalty = 0;
+      // Downweight accord overlap: it’s not always present in the DB.
+      pPenalty += Math.min(16, overlap * 2);
+      if (p.brand === f.brand) pPenalty += 10;
+      if (pFamily === fFamily) pPenalty += 10;
+      if (pTexture === fTexture) pPenalty += 8;
+      if (pVibeToken && fVibeToken && pVibeToken === fVibeToken) pPenalty += 6;
+      if (styleSame) pPenalty += 8;
+      if (priceSame) pPenalty += 6;
+      if (projDiff <= 0) pPenalty += 6;
+      else if (projDiff <= 1) pPenalty += 3;
+      if (seasonOverlap) pPenalty += 4;
+      maxPenalty = Math.max(maxPenalty, pPenalty);
+    }
+
+    return Math.min(35, maxPenalty);
+  }
+
   const usedIds = new Set<string>();
   const usedKeys = new Set<string>();
   const pickedFragrances: CatalogFragrance[] = [];
@@ -594,6 +734,14 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
   const maxMainScore = pool.length ? Math.max(...pool.map((x) => x.s)) : 0;
   const minMainScore = pool.length ? Math.min(...pool.map((x) => x.s)) : 0;
   const mainScoreRange = Math.max(1, maxMainScore - minMainScore);
+
+  const roleDiversityWeights: Record<RecommendationRole, number> = {
+    SAFE: 0.35,
+    BOLD: 0.65,
+    NICHE: 0.7,
+    VERSATILE: 0.5,
+    WILDCARD: 0.6,
+  };
 
   for (const role of RECOMMENDATION_ROLES) {
     const available = pool.filter(
@@ -609,7 +757,9 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
       const roleScores = computeRoleScores(scored.f, profile);
       const roleScore = roleScores[role];
       const normalizedMain = (scored.s - minMainScore) / mainScoreRange;
-      const combined = roleScore * 0.6 + normalizedMain * 100 * 0.4;
+      const diversityPenalty =
+        similarityPenaltyToPicked(scored.f, pickedFragrances) * roleDiversityWeights[role];
+      const combined = roleScore * 0.6 + normalizedMain * 100 * 0.4 - diversityPenalty;
       return { scored, roleScore, combined, mainScore: scored.s };
     });
 
@@ -722,6 +872,77 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
   }
 
   const pickedFinal = unique.slice(0, 5);
+
+  // Priority 5: ensure final recommendations always carry explicit intended roles.
+  // The earlier "EXTRA/backfill" paths can set `role` to undefined; UI would otherwise fallback-by-index.
+  const catalogById = new Map(catalog.map((c) => [c.id, c]));
+  const finalCatalogs: Array<{ picked: PickedFragrance; f: CatalogFragrance | null }> = pickedFinal.map(
+    (p) => ({ picked: p, f: catalogById.get(p.id) ?? null })
+  );
+
+  const roleScoresByIndex = finalCatalogs.map(({ f }) => {
+    if (!f) return null;
+    const profile = getCachedProfile(f);
+    return computeRoleScores(f, profile);
+  });
+
+  // Greedy role assignment: pick the best available candidate for each role.
+  const assignedRoles = new Array<RecommendationRole>(pickedFinal.length).fill("SAFE") as RecommendationRole[];
+  const usedRoleCandidates = new Set<number>();
+
+  for (const role of RECOMMENDATION_ROLES) {
+    let bestIdx: number | null = null;
+    let bestScore = -Infinity;
+    for (let i = 0; i < finalCatalogs.length; i++) {
+      if (usedRoleCandidates.has(i)) continue;
+      const rs = roleScoresByIndex[i];
+      if (!rs) continue;
+      const s = rs[role];
+      if (s > bestScore) {
+        bestScore = s;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx != null) {
+      usedRoleCandidates.add(bestIdx);
+      assignedRoles[bestIdx] = role;
+    }
+  }
+
+  function roleLineFor(role: RecommendationRole): string {
+    switch (role) {
+      case "SAFE":
+        return "Role: SAFE — the easy-to-wear anchor that matches your profile.";
+      case "BOLD":
+        return "Role: BOLD — higher intensity and stronger presence when you want to be remembered.";
+      case "NICHE":
+        return "Role: NICHE — distinctive and artistic, built for collectors and conversation starters.";
+      case "VERSATILE":
+        return "Role: VERSATILE — balanced across settings, so it stays useful day after day.";
+      case "WILDCARD":
+        return "Role: WILDCARD — the unexpected-but-aligned pick that adds personality to your lineup.";
+      default:
+        return "Role: WILDCARD — the unexpected-but-aligned pick that adds personality to your lineup.";
+    }
+  }
+
+  // Patch role + reason text for consistent “intended role” display.
+  for (let i = 0; i < finalCatalogs.length; i++) {
+    const { picked, f } = finalCatalogs[i];
+    if (!f) continue;
+    const role = assignedRoles[i];
+    picked.role = role;
+
+    const why = picked.whyThisWorks ?? buildRecommendationExplanation(userContext, f, getCachedProfile(f));
+    const when = whenToWearLabel(f);
+    picked.reason = `${why} When to wear: ${when}. ${roleLineFor(role)}`;
+
+    if (typeof picked.confidence !== "number") {
+      const mainRaw = withScores.find((x) => x.f.id === f.id)?.s ?? score(f);
+      const confidence = Math.max(0, Math.min(1, (mainRaw - minMainScore) / mainScoreRange));
+      picked.confidence = confidence;
+    }
+  }
 
   const layering: LayeringSuggestionRaw[] = [];
   const detectedNames = detectedFragrances.map((d) => `${d.brand} ${d.name}`);

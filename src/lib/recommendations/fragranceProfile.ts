@@ -4,6 +4,7 @@
  */
 
 import type { CatalogFragrance } from "@/data/fragranceCatalog";
+import { getFragranceTaxonomyFeatures } from "./taxonomyEnrichment";
 
 export interface FragranceProfileScores {
   freshness: number;
@@ -70,6 +71,27 @@ export function getFragranceProfile(f: CatalogFragrance): FragranceProfileScores
 
   const versatileOccasions = ["office", "casual", "date"].filter((o) => occasions.includes(o as "office" | "casual" | "date"));
   const versatility = Math.min(100, 25 * versatileOccasions.length + (occasions.length >= 3 ? 25 : 0));
+
+  // --- Phase 1 taxonomy blend (safe wiring) ---
+  // If we can match standardized accords into the taxonomy, we blend in those trait signals.
+  // This does not replace heuristic scoring; it just improves trait estimation gradually.
+  const taxonomy = getFragranceTaxonomyFeatures(f);
+  if (taxonomy?.confidence && taxonomy.confidence > 0.25) {
+    const blendW = Math.max(0.15, Math.min(0.35, taxonomy.confidence * 0.25));
+    const t = taxonomy.traitScores;
+
+    const txFresh = typeof t.trait_freshness === "number" ? t.trait_freshness * 100 : null;
+    const txWarm = typeof t.trait_temperature_warmth === "number" ? t.trait_temperature_warmth * 100 : null;
+    const txSweet = typeof t.trait_sweetness === "number" ? t.trait_sweetness * 100 : null;
+    const txClean = typeof t.trait_cleanliness === "number" ? t.trait_cleanliness * 100 : null;
+    const txSensual = typeof t.trait_sensuality === "number" ? t.trait_sensuality * 100 : null;
+
+    if (txFresh != null) freshness = freshness * (1 - blendW) + txFresh * blendW;
+    if (txWarm != null) warmth = warmth * (1 - blendW) + txWarm * blendW;
+    if (txSweet != null) sweetness = sweetness * (1 - blendW) + txSweet * blendW;
+    if (txClean != null) cleanliness = cleanliness * (1 - blendW) + txClean * blendW;
+    if (txSensual != null) sensuality = sensuality * (1 - blendW) + txSensual * blendW;
+  }
 
   return {
     freshness: Math.round(Math.min(100, freshness)),

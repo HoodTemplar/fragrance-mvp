@@ -102,8 +102,39 @@ function deriveVibe(style: string, impression: string): string {
 /** Q7 turnoff_heavy -> prefer shorter longevity. */
 function deriveLongevity(answers: Record<string, string>): string {
   const q7 = answers.q7 ?? "";
-  if (q7 === "turnoff_heavy") return "short";
+  if (q7 === "turnoff_heavy" || q7 === "turnoff_loud") return "short";
   return "day";
+}
+
+/** Repurpose quiz q4 (presence) into an inferred price tier for scoring. */
+function deriveBudgetFromPresence(answers: Record<string, string>): "budget" | "mid" | "luxe" | "niche" {
+  const presence = answers.q4 ?? "";
+  if (presence === "presence_aura") return "budget";
+  if (presence === "presence_subtle") return "mid";
+  if (presence === "presence_memorable") return "luxe";
+  if (presence === "presence_bold") return "niche";
+  return "mid";
+}
+
+/** Apply user turnoffs to projection/feel so intensity doesn't fight preferences. */
+function applyTurnoffsToProjectionAndFeel(
+  answers: Record<string, string>,
+  projection: string | undefined,
+  feel: string
+): { userProjection?: string; feel: string } {
+  const q7 = answers.q7 ?? "";
+
+  // If they explicitly dislike piercing notes, cap intensity.
+  if (q7 === "turnoff_sharp") {
+    if (projection === "strong" || projection === "bold") return { userProjection: "moderate", feel: "balanced" };
+    return { userProjection: projection, feel: "balanced" };
+  }
+
+  if (q7 === "turnoff_loud") {
+    return { userProjection: "moderate", feel: "balanced" };
+  }
+
+  return { userProjection: projection, feel };
 }
 
 /** Q9 -> gender. */
@@ -126,7 +157,9 @@ export function mapQuizAnswersToEngine(
   const family = SCENT_TO_FAMILY[q8Scent] ?? ENV_TO_FAMILY[q1Env] ?? "fresh";
   const occasion = CONTEXT_TO_OCCASION[answers.q5 ?? ""] ?? "daily";
   const projection = PRESENCE_TO_PROJECTION[answers.q4 ?? ""];
-  const feel = PRESENCE_TO_FEEL[answers.q4 ?? ""] ?? "balanced";
+  const baseFeel = PRESENCE_TO_FEEL[answers.q4 ?? ""] ?? "balanced";
+  const turnoffAdjusted = applyTurnoffsToProjectionAndFeel(answers, projection, baseFeel);
+  const feel = turnoffAdjusted.feel;
   const seasons = CLIMATE_TO_SEASONS[answers.q6 ?? ""];
   const vibe = deriveVibe(answers.q2 ?? "", answers.q3 ?? "");
   const designerNiche = (answers.q2 ?? "") === "creative_unconventional" ? "niche" : "both";
@@ -137,12 +170,12 @@ export function mapQuizAnswersToEngine(
     q1: family,
     q2: occasion,
     q3: feel,
-    q4: "mid",
+    q4: deriveBudgetFromPresence(answers),
     q5: designerNiche,
     q8: vibe,
     q9: longevity,
     q11: gender,
     userPreferredSeasons: seasons && seasons.length > 0 ? seasons : undefined,
-    userProjection: projection || undefined,
+    userProjection: turnoffAdjusted.userProjection || undefined,
   };
 }
