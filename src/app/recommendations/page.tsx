@@ -314,10 +314,9 @@ function RecommendationsContent() {
 
         {/* Role-based sections */}
         {(() => {
-          const rolesOrder: RecommendationRole[] = ["SAFE", "BOLD", "NICHE", "VERSATILE", "WILDCARD"];
-          const recsWithRole = displayRecs.map((rec, i) => ({
+          const recsWithRole = displayRecs.map((rec) => ({
             ...rec,
-            _role: rec.role ?? rolesOrder[i],
+            _role: rec.role,
           }));
 
           const targets: Array<{ key: string; title: string; role: RecommendationRole }> = [
@@ -343,7 +342,7 @@ function RecommendationsContent() {
                   <h2 className="font-serif text-xl text-charcoal/70">{target.title}</h2>
                   {rec ? (
                     <ul className="space-y-6">
-                      <RecommendationCard recommendation={rec} pageContext="recommendations_page" variant="editorial" role={target.role} />
+                      <RecommendationCard recommendation={rec} pageContext="recommendations_page" variant="editorial" />
                     </ul>
                   ) : (
                     <p className="text-sm text-charcoal/60 leading-relaxed">

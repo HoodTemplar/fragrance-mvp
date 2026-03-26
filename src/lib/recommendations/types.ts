@@ -42,8 +42,8 @@ export interface PickedFragrance {
   reason: string;
 
   /**
-   * Optional curated role for slotting in the recommendations UI.
-   * (Undefined for backfilled "EXTRA" picks.)
+   * Curated role for UI slotting. `runRecommendationEngine` always assigns one of the five roles
+   * after selection (including backfills); do not infer role from list index in the client.
    */
   role?: RecommendationRole;
 

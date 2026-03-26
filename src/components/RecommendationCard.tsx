@@ -11,8 +11,6 @@ import { useCallback } from "react";
 
 export type RecommendationPageContext = "collection_results" | "recommendations_page";
 
-const ROLES_ORDER: RecommendationRole[] = ["SAFE", "BOLD", "NICHE", "VERSATILE", "WILDCARD"];
-
 function getRoleStyle(role: RecommendationRole): {
   label: string;
   cardClass: string;
@@ -71,7 +69,7 @@ interface RecommendationCardProps {
   pageContext: RecommendationPageContext;
   /** Layout: "default" (horizontal), "compact", or "editorial" (feature-style) */
   variant?: "default" | "compact" | "editorial";
-  /** For editorial: role drives visual style (defaults by index 0–4) */
+  /** Optional override; otherwise `recommendation.role` from the engine is used (no index guessing). */
   role?: RecommendationRole;
 }
 
@@ -114,9 +112,7 @@ export default function RecommendationCard({
   }, [recommendation.id, recommendation.name, recommendation.brand, recommendation.isSponsored, recommendation.sponsorSlotId, pageContext]);
 
   const showBadge = recommendation.isSponsored === true;
-  const role =
-    roleProp ??
-    (index != null && index < ROLES_ORDER.length ? ROLES_ORDER[index] : undefined);
+  const role = roleProp ?? recommendation.role;
   const roleStyle = role ? getRoleStyle(role) : null;
 
   const confidencePct =

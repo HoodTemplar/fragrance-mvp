@@ -59,6 +59,80 @@ const CANDIDATE_POOL_SIZE = 100;
 type RecommendationRole = "SAFE" | "BOLD" | "NICHE" | "VERSATILE" | "WILDCARD";
 const RECOMMENDATION_ROLES: RecommendationRole[] = ["SAFE", "BOLD", "NICHE", "VERSATILE", "WILDCARD"];
 
+/** When catalog lookup fails, use neutral scores so role assignment still yields a full permutation. */
+const NEUTRAL_ROLE_SCORES: Record<RecommendationRole, number> = {
+  SAFE: 50,
+  BOLD: 50,
+  NICHE: 50,
+  VERSATILE: 50,
+  WILDCARD: 50,
+};
+
+/** All n-length permutations without repetition (n ≤ elements.length). Small n only. */
+function permutationsOfLength<T>(elements: T[], n: number): T[][] {
+  if (n === 0) return [[]];
+  if (n > elements.length) return [];
+  const out: T[][] = [];
+  function dfs(prefix: T[], remaining: T[]) {
+    if (prefix.length === n) {
+      out.push([...prefix]);
+      return;
+    }
+    for (let i = 0; i < remaining.length; i++) {
+      dfs([...prefix, remaining[i]], remaining.filter((_, j) => j !== i));
+    }
+  }
+  dfs([], elements);
+  return out;
+}
+
+/**
+ * One-to-one assignment of distinct roles to each slot that maximizes total role-fit score.
+ * Avoids greedy order bias (SAFE-first no longer steals the globally best BOLD candidate).
+ */
+function assignRolesOptimal(roleScoresByIndex: Array<Record<RecommendationRole, number> | null>): RecommendationRole[] {
+  const n = roleScoresByIndex.length;
+  if (n === 0) return [];
+
+  const scores = roleScoresByIndex.map((rs) => rs ?? NEUTRAL_ROLE_SCORES);
+
+  if (n === 1) {
+    let bestRole: RecommendationRole = "SAFE";
+    let best = -Infinity;
+    for (const role of RECOMMENDATION_ROLES) {
+      const s = scores[0][role];
+      if (s > best) {
+        best = s;
+        bestRole = role;
+      }
+    }
+    return [bestRole];
+  }
+
+  if (n > RECOMMENDATION_ROLES.length) {
+    return assignRolesOptimal(roleScoresByIndex.slice(0, RECOMMENDATION_ROLES.length));
+  }
+
+  const perms = permutationsOfLength(RECOMMENDATION_ROLES, n);
+  let bestPerm: RecommendationRole[] | null = null;
+  let bestSum = -Infinity;
+
+  for (const perm of perms) {
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += scores[i][perm[i]];
+    if (sum > bestSum) {
+      bestSum = sum;
+      bestPerm = perm;
+    } else if (sum === bestSum && bestPerm) {
+      const a = perm.join(",");
+      const b = bestPerm.join(",");
+      if (a < b) bestPerm = perm;
+    }
+  }
+
+  return bestPerm ?? Array.from({ length: n }, (_, i) => RECOMMENDATION_ROLES[i]);
+}
+
 /** Quiz q1 (family) -> style clusters that match (e.g. fresh -> fresh-clean). */
 const FAMILY_STYLE_CLUSTERS: Record<string, StyleCluster[]> = {
   fresh: ["fresh-clean"],
@@ -379,17 +453,26 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
 
     const accords = (f.accords ?? []).map((a) => normalize(a));
 
-    // 1) scent_family
-    let scentMatches = 0;
-    for (const ua of userAccords) {
-      if (accords.some((c) => normalize(c) === normalize(ua) || normalize(c).includes(normalize(ua)))) scentMatches += 1;
-    }
-    const scentFamilyScore =
-      scentMatches === 0 ? 10 : Math.round((scentMatches / Math.max(1, userAccords.length)) * 100);
+    // 1) scent_family (continuous similarity to reduce score ties)
+    const userAccordSet = new Set(userAccords.map((a) => normalize(a)));
+    const fragAccordSet = new Set(accords.map((a) => normalize(a)));
+    let intersection = 0;
+    userAccordSet.forEach((ua) => {
+      if (Array.from(fragAccordSet).some((fa) => fa === ua || fa.includes(ua) || ua.includes(fa))) intersection += 1;
+    });
+    const union = Math.max(1, userAccordSet.size + fragAccordSet.size - intersection);
+    const jaccard = intersection / union; // 0..1
+    const scentFamilyScore = Math.round(15 + 85 * jaccard);
 
     // 2) vibe
     const vibeStrength = userVibe ? vibeMatchStrength(userVibe, buildCatalogVibeText(f)) : 0;
-    const vibeScore = vibeStrength === 2 ? 100 : vibeStrength === 1 ? 70 : 30;
+    // Add small extra resolution based on how much of the vibe text overlaps with synonyms.
+    const vibeText = buildCatalogVibeText(f);
+    const vibeWords = vibeText.split(/[\s/,-]+/).filter(Boolean);
+    const synonymWords = (VIBE_SYNONYMS[userVibe] ?? []).map((x) => normalize(x));
+    const synonymHits = synonymWords.filter((syn) => vibeWords.some((w) => w === syn || w.includes(syn) || syn.includes(w))).length;
+    const vibeHitBonus = Math.min(10, synonymHits * 3);
+    const vibeScore = (vibeStrength === 2 ? 95 : vibeStrength === 1 ? 70 : 35) + vibeHitBonus;
 
     // 3) texture
     const fragTexture = deriveTextureToken(f);
@@ -452,9 +535,18 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
         : 25
       : 50;
 
+    // Extra differentiation: reward richer metadata slightly (reduces ties when many candidates match similarly)
+    const richnessScore = Math.min(
+      100,
+      (f.accords?.length ?? 0) * 10 +
+        (f.seasons?.length ?? 0) * 6 +
+        (f.occasions?.length ?? 0) * 4 +
+        (f.vibe ? 8 : 0)
+    );
+
     // Weighted total: dominant scent_family + vibe
     const weights = {
-      scent_family: 26,
+      scent_family: 25,
       vibe: 20,
       style_intent: 10,
       texture: 10,
@@ -462,6 +554,7 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
       intensity: 12,
       season: 6,
       familiarity: 2,
+      richness: 1,
     } as const;
 
     const baseTotal =
@@ -472,7 +565,8 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
         settingScore * weights.setting +
         intensityScore * weights.intensity +
         seasonScore * weights.season +
-        familiarityScore * weights.familiarity) /
+        familiarityScore * weights.familiarity +
+        richnessScore * weights.richness) /
       100;
 
     // Keep important existing constraints as additional adjustments
@@ -885,8 +979,8 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
 
   const pickedFinal = unique.slice(0, 5);
 
-  // Priority 5: ensure final recommendations always carry explicit intended roles.
-  // The earlier "EXTRA/backfill" paths can set `role` to undefined; UI would otherwise fallback-by-index.
+  // Priority 5: every output slot gets exactly one distinct engine role (no index fallback in UI).
+  // Optimal one-to-one assignment avoids greedy SAFE-first bias and default SAFE stubs.
   const catalogById = new Map(catalog.map((c) => [c.id, c]));
   const finalCatalogs: Array<{ picked: PickedFragrance; f: CatalogFragrance | null }> = pickedFinal.map(
     (p) => ({ picked: p, f: catalogById.get(p.id) ?? null })
@@ -898,28 +992,7 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     return computeRoleScores(f, profile);
   });
 
-  // Greedy role assignment: pick the best available candidate for each role.
-  const assignedRoles = new Array<RecommendationRole>(pickedFinal.length).fill("SAFE") as RecommendationRole[];
-  const usedRoleCandidates = new Set<number>();
-
-  for (const role of RECOMMENDATION_ROLES) {
-    let bestIdx: number | null = null;
-    let bestScore = -Infinity;
-    for (let i = 0; i < finalCatalogs.length; i++) {
-      if (usedRoleCandidates.has(i)) continue;
-      const rs = roleScoresByIndex[i];
-      if (!rs) continue;
-      const s = rs[role];
-      if (s > bestScore) {
-        bestScore = s;
-        bestIdx = i;
-      }
-    }
-    if (bestIdx != null) {
-      usedRoleCandidates.add(bestIdx);
-      assignedRoles[bestIdx] = role;
-    }
-  }
+  const assignedRoles = assignRolesOptimal(roleScoresByIndex);
 
   function roleLineFor(role: RecommendationRole): string {
     switch (role) {
@@ -938,12 +1011,17 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     }
   }
 
-  // Patch role + reason text for consistent “intended role” display.
+  // Patch role + reason text for consistent “intended role” display (every slot, including rare catalog misses).
   for (let i = 0; i < finalCatalogs.length; i++) {
     const { picked, f } = finalCatalogs[i];
-    if (!f) continue;
     const role = assignedRoles[i];
     picked.role = role;
+
+    if (!f) {
+      picked.reason = `${picked.reason.replace(/\s*Role: EXTRA[^\n]*/g, "").trim()} ${roleLineFor(role)}`;
+      if (typeof picked.confidence !== "number") picked.confidence = 0.5;
+      continue;
+    }
 
     const why = picked.whyThisWorks ?? buildRecommendationExplanation(userContext, f, getCachedProfile(f));
     const when = whenToWearLabel(f);

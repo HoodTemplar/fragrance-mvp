@@ -80,7 +80,7 @@ export interface RecommendedFragrance {
   isSponsored?: boolean;
   /** Optional. When set, clicks are attributed to this sponsor slot (for billing/analytics). */
   sponsorSlotId?: string;
-  /** Optional. For editorial UI: visual style per role (inferred by index if not set). */
+  /** Editorial role from the engine (0–5 distinct slots); not inferred from list position. */
   role?: RecommendationRole;
 }
 
