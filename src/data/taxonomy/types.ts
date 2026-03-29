@@ -19,11 +19,43 @@ export interface LabeledEntity {
 
 export interface NoteCategory extends LabeledEntity {}
 
+/**
+ * Finer grouping under a macro {@link NoteCategory} (e.g. "bitter citrus" under Citrus).
+ * Used for enrichment and future scoring; optional on each {@link StandardizedNote}.
+ */
+export interface NoteSubcategory extends LabeledEntity {
+  /** Parent macro category id (e.g. note_cat_citrus). */
+  parentCategoryId: TaxonomyId;
+}
+
+/**
+ * Cross-cutting groupings of notes for similarity / clustering (e.g. "white floral bouquet").
+ * A note may belong to multiple clusters; weights are optional for soft membership.
+ */
+export interface NoteCluster extends LabeledEntity {
+  /** Canonical note members; optional weights sum arbitrarily (normalize downstream). */
+  memberNotes: Array<{ noteId: TaxonomyId; weight?: number }>;
+  /** Optional: macro categories this cluster is most associated with. */
+  relatedCategoryIds?: TaxonomyId[];
+}
+
 export interface StandardizedNote extends LabeledEntity {
   categoryIds: TaxonomyId[];
+  /** Optional finer classification (Layer 1). */
+  subcategoryIds?: TaxonomyId[];
+  /** Optional cluster memberships for soft grouping (Layer 1). */
+  clusterIds?: TaxonomyId[];
 }
 
 export interface AccordCategory extends LabeledEntity {}
+
+/**
+ * Finer facet under a macro {@link AccordCategory} (e.g. "dry woody" vs "creamy woody").
+ * Layer 3 — optional on each {@link AccordDefinition}.
+ */
+export interface AccordCategorySubtype extends LabeledEntity {
+  parentCategoryId: TaxonomyId;
+}
 
 export type PerceptualTraitId =
   | "trait_cleanliness"
@@ -60,6 +92,8 @@ export interface PerceptualTrait extends LabeledEntity {
 
 export interface AccordDefinition extends LabeledEntity {
   categoryId: TaxonomyId;
+  /** Optional Layer 3 facet (creamy vs dry woody, edible vs airy sweet, etc.). */
+  subtypeId?: TaxonomyId;
 
   /**
    * Plain-English perception summary of the accord.

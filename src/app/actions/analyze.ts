@@ -156,6 +156,13 @@ export async function generateCollectionAnalysis(
     quizAnswers,
     genderPreference,
     catalog: catalog && catalog.length > 0 ? catalog : undefined,
+    collectionScentProfile: {
+      dominant: analysis.scentProfile.dominant,
+      secondary: analysis.scentProfile.secondary,
+      accent: analysis.scentProfile.accent,
+    },
+    collectionSeasonHints: analysis.bestSeasons,
+    collectionOccasionHints: analysis.bestOccasions,
   });
   const polished = await polishRecommendationCopy(engineOutput);
   const recs = polished ?? buildPolishedFromRaw(engineOutput);

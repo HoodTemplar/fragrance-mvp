@@ -1,17 +1,14 @@
 /**
- * Starter note taxonomy.
+ * Note taxonomy (core + Layer 1 expansion).
  *
- * This provides:
- * - note categories
- * - standardized note definitions
- *
- * It is intentionally a "starter universe": enough to validate plumbing and scale later.
- * No existing recommendation code is modified to use this yet.
+ * Core definitions live in `NOTE_CATEGORIES_CORE` / `NOTES_CORE`.
+ * Additional categories and notes are merged from `noteLayer1Expansion.ts` without key overlap.
  */
 
 import type { NoteCategory, StandardizedNote, TaxonomyId } from "./types";
+import { NOTE_CATEGORIES_EXPANDED, NOTES_EXPANDED } from "./noteLayer1Expansion";
 
-export const NOTE_CATEGORIES: Record<TaxonomyId, NoteCategory> = {
+const NOTE_CATEGORIES_CORE: Record<TaxonomyId, NoteCategory> = {
   note_cat_citrus: {
     id: "note_cat_citrus",
     label: "Citrus",
@@ -128,7 +125,13 @@ export const NOTE_CATEGORIES: Record<TaxonomyId, NoteCategory> = {
   },
 };
 
-export const NOTES: Record<TaxonomyId, StandardizedNote> = {
+/** All macro categories: core + Layer 1 expansion. */
+export const NOTE_CATEGORIES: Record<TaxonomyId, NoteCategory> = {
+  ...NOTE_CATEGORIES_CORE,
+  ...NOTE_CATEGORIES_EXPANDED,
+};
+
+const NOTES_CORE: Record<TaxonomyId, StandardizedNote> = {
   // Citrus
   note_bergamot: {
     id: "note_bergamot",
@@ -233,5 +236,11 @@ export const NOTES: Record<TaxonomyId, StandardizedNote> = {
   // Smoke / incense
   note_incense: { id: "note_incense", label: "Incense", categoryIds: ["note_cat_smoke_incense"], synonyms: ["incense smoke"] },
   note_smoke: { id: "note_smoke", label: "Smoke", categoryIds: ["note_cat_smoke_incense"], synonyms: ["smoked"] },
+};
+
+/** All standardized notes: core + Layer 1 expansion. */
+export const NOTES: Record<TaxonomyId, StandardizedNote> = {
+  ...NOTES_CORE,
+  ...NOTES_EXPANDED,
 };
 

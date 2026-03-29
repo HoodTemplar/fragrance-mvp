@@ -13,10 +13,11 @@ import type {
 } from "./types";
 import type { AccordDefinition as AccordDef } from "./types";
 import type { PerceptualTraitId } from "./types";
+import { ACCORD_CATEGORIES_EXPANDED, ACCORDS_EXPANDED } from "./accordLayer3Expansion";
 
 // Note: Types are imported for clarity; this file only exports constants.
 
-export const ACCORD_CATEGORIES: Record<TaxonomyId, AccordCategory> = {
+export const ACCORD_CATEGORIES_CORE: Record<TaxonomyId, AccordCategory> = {
   accord_cat_fresh_citrus_aromatic: { id: "accord_cat_fresh_citrus_aromatic", label: "Fresh / Citrus / Aromatic" },
   accord_cat_fresh_spicy: { id: "accord_cat_fresh_spicy", label: "Fresh Spicy" },
   accord_cat_warm_spicy: { id: "accord_cat_warm_spicy", label: "Warm Spicy" },
@@ -51,7 +52,7 @@ export const ACCORD_CATEGORIES: Record<TaxonomyId, AccordCategory> = {
  *
  * The family IDs referenced here must exist in `familyTaxonomy.ts`.
  */
-export const ACCORDS: Record<TaxonomyId, AccordDefinition> = {
+export const ACCORDS_CORE: Record<TaxonomyId, AccordDefinition> = {
   // Fresh / Citrus / Aromatic
   accord_fresh_citrus_bright: {
     id: "accord_fresh_citrus_bright",
@@ -749,5 +750,17 @@ export const ACCORDS: Record<TaxonomyId, AccordDefinition> = {
       hybridFamilyMappings: [{ hybridFamilyId: "hybrid_family_oud_resin_smoke_dark", weight: 0.90 }],
     },
   },
+};
+
+/** Macro categories: core + Layer 3 expansion (additive). */
+export const ACCORD_CATEGORIES: Record<TaxonomyId, AccordCategory> = {
+  ...ACCORD_CATEGORIES_CORE,
+  ...ACCORD_CATEGORIES_EXPANDED,
+};
+
+/** Standardized accords: core + Layer 3 nuanced facets. */
+export const ACCORDS: Record<TaxonomyId, AccordDefinition> = {
+  ...ACCORDS_CORE,
+  ...ACCORDS_EXPANDED,
 };
 

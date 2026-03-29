@@ -20,7 +20,20 @@ import type {
   WhenToWearRaw,
 } from "./types";
 import { getFragranceProfile } from "./fragranceProfile";
+import { getFragranceTaxonomyFeatures } from "./taxonomyEnrichment";
+import {
+  computeTaxonomyWeightedScentSimilarity,
+  legacyScentFamilyJaccard,
+} from "./accordTaxonomySimilarity";
 import { buildRecommendationExplanation } from "./explanationBuilder";
+import {
+  extractProfileAccordTokens,
+  inferEngineFamilyFromCollectionProfile,
+  mergeUserAccordsWithProfile,
+  normalizeSeasonHints,
+  occasionTagsFromHints,
+  scoreFragranceAgainstCollectionProfile,
+} from "./collectionProfileBridge";
 
 const BUDGET_MAP: Record<string, BudgetTier> = {
   budget: "budget",
@@ -58,80 +71,6 @@ const CANDIDATE_POOL_SIZE = 100;
 /** Recommendation roles: one fragrance per role for a curated set of 5. */
 type RecommendationRole = "SAFE" | "BOLD" | "NICHE" | "VERSATILE" | "WILDCARD";
 const RECOMMENDATION_ROLES: RecommendationRole[] = ["SAFE", "BOLD", "NICHE", "VERSATILE", "WILDCARD"];
-
-/** When catalog lookup fails, use neutral scores so role assignment still yields a full permutation. */
-const NEUTRAL_ROLE_SCORES: Record<RecommendationRole, number> = {
-  SAFE: 50,
-  BOLD: 50,
-  NICHE: 50,
-  VERSATILE: 50,
-  WILDCARD: 50,
-};
-
-/** All n-length permutations without repetition (n ≤ elements.length). Small n only. */
-function permutationsOfLength<T>(elements: T[], n: number): T[][] {
-  if (n === 0) return [[]];
-  if (n > elements.length) return [];
-  const out: T[][] = [];
-  function dfs(prefix: T[], remaining: T[]) {
-    if (prefix.length === n) {
-      out.push([...prefix]);
-      return;
-    }
-    for (let i = 0; i < remaining.length; i++) {
-      dfs([...prefix, remaining[i]], remaining.filter((_, j) => j !== i));
-    }
-  }
-  dfs([], elements);
-  return out;
-}
-
-/**
- * One-to-one assignment of distinct roles to each slot that maximizes total role-fit score.
- * Avoids greedy order bias (SAFE-first no longer steals the globally best BOLD candidate).
- */
-function assignRolesOptimal(roleScoresByIndex: Array<Record<RecommendationRole, number> | null>): RecommendationRole[] {
-  const n = roleScoresByIndex.length;
-  if (n === 0) return [];
-
-  const scores = roleScoresByIndex.map((rs) => rs ?? NEUTRAL_ROLE_SCORES);
-
-  if (n === 1) {
-    let bestRole: RecommendationRole = "SAFE";
-    let best = -Infinity;
-    for (const role of RECOMMENDATION_ROLES) {
-      const s = scores[0][role];
-      if (s > best) {
-        best = s;
-        bestRole = role;
-      }
-    }
-    return [bestRole];
-  }
-
-  if (n > RECOMMENDATION_ROLES.length) {
-    return assignRolesOptimal(roleScoresByIndex.slice(0, RECOMMENDATION_ROLES.length));
-  }
-
-  const perms = permutationsOfLength(RECOMMENDATION_ROLES, n);
-  let bestPerm: RecommendationRole[] | null = null;
-  let bestSum = -Infinity;
-
-  for (const perm of perms) {
-    let sum = 0;
-    for (let i = 0; i < n; i++) sum += scores[i][perm[i]];
-    if (sum > bestSum) {
-      bestSum = sum;
-      bestPerm = perm;
-    } else if (sum === bestSum && bestPerm) {
-      const a = perm.join(",");
-      const b = bestPerm.join(",");
-      if (a < b) bestPerm = perm;
-    }
-  }
-
-  return bestPerm ?? Array.from({ length: n }, (_, i) => RECOMMENDATION_ROLES[i]);
-}
 
 /** Quiz q1 (family) -> style clusters that match (e.g. fresh -> fresh-clean). */
 const FAMILY_STYLE_CLUSTERS: Record<string, StyleCluster[]> = {
@@ -280,18 +219,42 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     weaknesses,
     quizAnswers = {},
     genderPreference: inputGender,
-    userPreferredSeasons,
+    userPreferredSeasons: inputPreferredSeasons,
     userProjection,
     userPreferredPriceTiers: inputPriceTiers,
+    collectionScentProfile,
+    collectionSeasonHints,
+    collectionOccasionHints,
   } = input;
 
   const hasCategory = inferredCategories(detectedFragrances);
-  const family = (quizAnswers.q1 ?? "fresh") as string;
+  const inferredFamily = inferEngineFamilyFromCollectionProfile(collectionScentProfile, quizAnswers.q1);
+  const family = (inferredFamily ?? quizAnswers.q1 ?? "fresh") as string;
   const occasion = (quizAnswers.q2 ?? "daily") as string;
   const genderPreference = (inputGender ?? quizAnswers.q11 ?? "open") as "masculine" | "feminine" | "unisex" | "open";
 
-  const userAccords = FAMILY_ACCORDS[family] ?? FAMILY_ACCORDS.fresh;
-  const userOccasions = OCCASION_TAGS[occasion] ?? OCCASION_TAGS.daily;
+  const profileTokens = collectionScentProfile
+    ? extractProfileAccordTokens(collectionScentProfile)
+    : [];
+  const userAccords = mergeUserAccordsWithProfile(
+    FAMILY_ACCORDS[family] ?? FAMILY_ACCORDS.fresh,
+    profileTokens
+  );
+
+  const collectionSeasonsNorm = normalizeSeasonHints(collectionSeasonHints);
+  const userPreferredSeasons =
+    inputPreferredSeasons?.length && inputPreferredSeasons.some((s) => String(s).trim())
+      ? inputPreferredSeasons
+      : collectionSeasonsNorm.length > 0
+        ? collectionSeasonsNorm
+        : inputPreferredSeasons;
+
+  const baseOccasionTags = OCCASION_TAGS[occasion] ?? OCCASION_TAGS.daily;
+  const collectionOccTags = occasionTagsFromHints(collectionOccasionHints);
+  const userOccasions =
+    collectionOccTags.length > 0
+      ? Array.from(new Set([...baseOccasionTags, ...collectionOccTags]))
+      : baseOccasionTags;
   const userVibe = normalize(quizAnswers.q8 ?? "");
   const userLongevityPref = (quizAnswers.q9 ?? "day") as string;
   const userLongevityMatch = LONGEVITY_MAP[userLongevityPref] ?? LONGEVITY_MAP.day;
@@ -453,6 +416,13 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
     return "musky";
   }
 
+  // Must be declared before `score()` runs (see `withScores` below) — avoids TDZ on `taxonomyFeatureCache`.
+  const taxonomyFeatureCache = new Map<string, ReturnType<typeof getFragranceTaxonomyFeatures>>();
+  function getCachedTaxonomyFeatures(f: CatalogFragrance) {
+    if (!taxonomyFeatureCache.has(f.id)) taxonomyFeatureCache.set(f.id, getFragranceTaxonomyFeatures(f));
+    return taxonomyFeatureCache.get(f.id)!;
+  }
+
   const score = (f: CatalogFragrance): number => {
     // --- FIM multi-dimensional scoring ---
     // Dimensions:
@@ -466,16 +436,17 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
 
     const accords = (f.accords ?? []).map((a) => normalize(a));
 
-    // 1) scent_family (continuous similarity to reduce score ties)
-    const userAccordSet = new Set(userAccords.map((a) => normalize(a)));
-    const fragAccordSet = new Set(accords.map((a) => normalize(a)));
-    let intersection = 0;
-    userAccordSet.forEach((ua) => {
-      if (Array.from(fragAccordSet).some((fa) => fa === ua || fa.includes(ua) || ua.includes(fa))) intersection += 1;
-    });
-    const union = Math.max(1, userAccordSet.size + fragAccordSet.size - intersection);
-    const jaccard = intersection / union; // 0..1
+    // 1) scent_family: weighted taxonomy similarity when enrichment resolves; else legacy raw-string Jaccard
+    const taxonomyFeatures = getCachedTaxonomyFeatures(f);
+    const taxSim = computeTaxonomyWeightedScentSimilarity(userAccords, taxonomyFeatures);
+    const legacyJaccard = legacyScentFamilyJaccard(userAccords, f.accords ?? []);
+    const jaccard = taxSim.ok ? Math.min(1, taxSim.similarity01 + taxSim.subtypeBonus01) : legacyJaccard;
     const scentFamilyScore = Math.round(15 + 85 * jaccard);
+
+    const collectionProfileScore =
+      collectionScentProfile && profileTokens.length > 0
+        ? scoreFragranceAgainstCollectionProfile(f, profileTokens, taxonomyFeatures)
+        : 50;
 
     // 2) vibe
     const vibeStrength = userVibe ? vibeMatchStrength(userVibe, buildCatalogVibeText(f)) : 0;
@@ -557,22 +528,24 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
         (f.vibe ? 8 : 0)
     );
 
-    // Weighted total: dominant scent_family + vibe
+    // Weighted total: scent_family + vibe + explicit AI profile alignment (collection flow)
     const weights = {
-      scent_family: 25,
-      vibe: 20,
-      style_intent: 10,
-      texture: 10,
-      setting: 14,
+      scent_family: 20,
+      vibe: 19,
+      collection_profile: 12,
+      style_intent: 9,
+      texture: 9,
+      setting: 13,
       intensity: 12,
       season: 6,
-      familiarity: 2,
-      richness: 1,
+      familiarity: 0,
+      richness: 0,
     } as const;
 
     const baseTotal =
       (scentFamilyScore * weights.scent_family +
         vibeScore * weights.vibe +
+        collectionProfileScore * weights.collection_profile +
         styleScore * weights.style_intent +
         textureScore * weights.texture +
         settingScore * weights.setting +
@@ -1029,59 +1002,17 @@ export function runRecommendationEngine(input: RecommendationInput): Recommendat
 
   const pickedFinal = unique.slice(0, 5);
 
-  // Priority 5: every output slot gets exactly one distinct engine role (no index fallback in UI).
-  // Optimal one-to-one assignment avoids greedy SAFE-first bias and default SAFE stubs.
+  // Preserve roles and reason text from the per-role selection loop; do not reassign roles post-hoc.
   const catalogById = new Map(catalog.map((c) => [c.id, c]));
-  const finalCatalogs: Array<{ picked: PickedFragrance; f: CatalogFragrance | null }> = pickedFinal.map(
-    (p) => ({ picked: p, f: catalogById.get(p.id) ?? null })
-  );
-
-  const roleScoresByIndex = finalCatalogs.map(({ f }) => {
-    if (!f) return null;
-    const profile = getCachedProfile(f);
-    return computeRoleScores(f, profile);
-  });
-
-  const assignedRoles = assignRolesOptimal(roleScoresByIndex);
-
-  function roleLineFor(role: RecommendationRole): string {
-    switch (role) {
-      case "SAFE":
-        return "Role: SAFE — the easy-to-wear anchor that matches your profile.";
-      case "BOLD":
-        return "Role: BOLD — higher intensity and stronger presence when you want to be remembered.";
-      case "NICHE":
-        return "Role: NICHE — distinctive and artistic, built for collectors and conversation starters.";
-      case "VERSATILE":
-        return "Role: VERSATILE — balanced across settings, so it stays useful day after day.";
-      case "WILDCARD":
-        return "Role: WILDCARD — the unexpected-but-aligned pick that adds personality to your lineup.";
-      default:
-        return "Role: WILDCARD — the unexpected-but-aligned pick that adds personality to your lineup.";
-    }
-  }
-
-  // Patch role + reason text for consistent “intended role” display (every slot, including rare catalog misses).
-  for (let i = 0; i < finalCatalogs.length; i++) {
-    const { picked, f } = finalCatalogs[i];
-    const role = assignedRoles[i];
-    picked.role = role;
-
+  for (const picked of pickedFinal) {
+    if (typeof picked.confidence === "number") continue;
+    const f = catalogById.get(picked.id);
     if (!f) {
-      picked.reason = `${picked.reason.replace(/\s*Role: EXTRA[^\n]*/g, "").trim()} ${roleLineFor(role)}`;
-      if (typeof picked.confidence !== "number") picked.confidence = 0.5;
+      picked.confidence = 0.5;
       continue;
     }
-
-    const why = picked.whyThisWorks ?? buildRecommendationExplanation(userContext, f, getCachedProfile(f));
-    const when = whenToWearLabel(f);
-    picked.reason = `${why} When to wear: ${when}. ${roleLineFor(role)}`;
-
-    if (typeof picked.confidence !== "number") {
-      const mainRaw = withScores.find((x) => x.f.id === f.id)?.s ?? score(f);
-      const confidence = Math.max(0, Math.min(1, (mainRaw - minMainScore) / mainScoreRange));
-      picked.confidence = confidence;
-    }
+    const mainRaw = withScores.find((x) => x.f.id === f.id)?.s ?? score(f);
+    picked.confidence = Math.max(0, Math.min(1, (mainRaw - minMainScore) / mainScoreRange));
   }
 
   const layering: LayeringSuggestionRaw[] = [];

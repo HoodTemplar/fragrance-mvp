@@ -30,6 +30,20 @@ export interface RecommendationInput {
   catalog?: CatalogFragrance[];
   /** When true, penalise high-sweetness fragrances (from quiz "what ruins a fragrance" = too sweet). */
   avoidSweet?: boolean;
+
+  /**
+   * AI collection analysis scent profile (upload flow). Drives inferred family when quiz q1 is absent,
+   * extra accord overlap for scoring, and a dedicated “matches your diagnosed profile” dimension.
+   */
+  collectionScentProfile?: {
+    dominant: string;
+    secondary: string;
+    accent: string;
+  };
+  /** AI `bestSeasons` from collection analysis — used when `userPreferredSeasons` is not set. */
+  collectionSeasonHints?: string[];
+  /** AI `bestOccasions` — merged into occasion matching so setting scores reflect the narrative profile. */
+  collectionOccasionHints?: string[];
 }
 
 /** One fragrance pick from the engine (before AI polish adds the note) */

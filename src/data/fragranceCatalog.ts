@@ -20,6 +20,9 @@ export type StyleCluster =
   | "daily-office"
   | "date-night";
 
+/** Layer 3: free-text accord label with relative importance (sum need not be 1). */
+export type WeightedAccordEntry = { label: string; weight: number };
+
 export interface CatalogFragrance {
   id: string;
   name: string;
@@ -38,6 +41,12 @@ export interface CatalogFragrance {
   priceTier: PriceTier;
   /** Scent accords (e.g. citrus, woody, floral). Optional for backward compatibility. */
   accords?: string[];
+  /** Optional weights per accord line; when absent, each `accords` entry has implicit weight 1. */
+  weightedAccords?: WeightedAccordEntry[];
+  /**
+   * Raw note lines (e.g. from Supabase `notes` jsonb). When present, note→accord rules can enrich the profile.
+   */
+  notes?: string[];
   /** Best seasons to wear. */
   seasons?: string[];
   /** Vibe / character (e.g. refined, bold, cozy). */
@@ -46,6 +55,14 @@ export interface CatalogFragrance {
   longevity?: string;
   /** Projection / sillage (e.g. intimate, moderate, strong). */
   projection?: string;
+}
+
+/**
+ * Layer 3: normalized list of weighted accord strings for downstream taxonomy matching.
+ */
+export function getWeightedAccordsForCatalog(f: CatalogFragrance): WeightedAccordEntry[] {
+  if (f.weightedAccords?.length) return f.weightedAccords;
+  return (f.accords ?? []).map((label) => ({ label, weight: 1 }));
 }
 
 export const FRAGRANCE_CATALOG: CatalogFragrance[] = [

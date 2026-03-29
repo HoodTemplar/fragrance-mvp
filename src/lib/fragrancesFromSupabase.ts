@@ -83,6 +83,58 @@ function deriveCategory(notes: string[], accords: string[]): string {
   return "General";
 }
 
+/** Trimmed display identity from DB text (never use brand as a substitute for missing name). */
+function normalizeIdentityField(value: unknown): string {
+  if (value == null) return "";
+  return String(value).replace(/\s+/g, " ").trim();
+}
+
+const PLACEHOLDER_NAMES = new Set(
+  ["unknown", "n/a", "na", "tbd", "test", "none", "null", "undefined", "-", "—", "."].map((s) =>
+    s.toLowerCase()
+  )
+);
+
+/**
+ * Tokens for comparing whether `name` is only a slice of the house name (bad import),
+ * e.g. name "Saint Laurent" vs brand "Yves Saint Laurent".
+ */
+function identityTokens(s: string): string[] {
+  return s
+    .toLowerCase()
+    .replace(/[''`]/g, " ")
+    .replace(/[-–—]/g, " ")
+    .split(/[\s/&,]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+}
+
+/**
+ * True when this row is safe to show as a catalog fragrance: real product name, real brand, no brand-as-name confusion.
+ * Does not use brand to invent or repair name — invalid rows must be dropped.
+ */
+export function isValidFragranceCatalogIdentity(name: string, brand: string): boolean {
+  const n = normalizeIdentityField(name);
+  const b = normalizeIdentityField(brand);
+  if (n.length === 0 || b.length === 0) return false;
+  if (PLACEHOLDER_NAMES.has(n.toLowerCase())) return false;
+
+  const nLower = n.toLowerCase();
+  const bLower = b.toLowerCase();
+  if (nLower === bLower) return false;
+
+  const nameToks = identityTokens(n);
+  const brandToks = identityTokens(b);
+  if (nameToks.length === 0 || brandToks.length === 0) return false;
+
+  const brandSet = new Set(brandToks);
+  const nameIsOnlySubsetOfBrand =
+    nameToks.length < brandToks.length && nameToks.every((t) => brandSet.has(t));
+  if (nameIsOnlySubsetOfBrand) return false;
+
+  return true;
+}
+
 /** Row shape from Supabase fragrances table (id, brand_id, name, brand, gender, notes, accords, seasons, occasions, vibe, price_tier, longevity, projection, style_cluster). */
 interface FragranceRow {
   id: string;
@@ -102,6 +154,8 @@ interface FragranceRow {
 }
 
 function rowToCatalog(row: FragranceRow): CatalogFragrance {
+  const name = normalizeIdentityField(row.name);
+  const brand = normalizeIdentityField(row.brand);
   const notes = parseJsonArray(row.notes);
   const accords = parseJsonArray(row.accords);
   const occasionsRaw = parseJsonArray(row.occasions);
@@ -118,8 +172,8 @@ function rowToCatalog(row: FragranceRow): CatalogFragrance {
 
   return {
     id: String(row.id),
-    name: String(row.name ?? ""),
-    brand: String(row.brand ?? ""),
+    name,
+    brand,
     category: deriveCategory(notes, accords),
     occasions,
     budgetTier,
@@ -129,6 +183,7 @@ function rowToCatalog(row: FragranceRow): CatalogFragrance {
     styleCluster: toStyleCluster(row.style_cluster ?? null),
     priceTier,
     accords: accords.length > 0 ? accords : undefined,
+    notes: notes.length > 0 ? notes : undefined,
     seasons:
       parseJsonArray(row.seasons).length > 0 ? parseJsonArray(row.seasons) : undefined,
     vibe: row.vibe ?? undefined,
@@ -157,7 +212,33 @@ export async function getFragranceCatalogFromSupabase(): Promise<CatalogFragranc
       return null;
     }
 
-    const catalog = data.map((row) => rowToCatalog(row as FragranceRow));
+    const catalog: CatalogFragrance[] = [];
+    let skippedIdentity = 0;
+    for (const row of data) {
+      const r = row as FragranceRow;
+      const name = normalizeIdentityField(r.name);
+      const brand = normalizeIdentityField(r.brand);
+      if (!isValidFragranceCatalogIdentity(name, brand)) {
+        skippedIdentity += 1;
+        console.warn("[fragrances] Skipping row — invalid name/brand identity (empty, equals brand, placeholder, or name is only part of brand)", {
+          id: r.id,
+          name: r.name,
+          brand: r.brand,
+        });
+        continue;
+      }
+      catalog.push(rowToCatalog(r));
+    }
+
+    if (skippedIdentity > 0) {
+      console.warn("[fragrances] Dropped", skippedIdentity, "fragrance row(s) failing identity validation");
+    }
+
+    if (catalog.length === 0) {
+      console.error("[fragrances] No rows left after identity validation; caller should use fallback catalog.");
+      return null;
+    }
+
     return catalog;
   } catch (e) {
     console.error("[fragrances] Failed to load from Supabase:", e instanceof Error ? e.message : e);

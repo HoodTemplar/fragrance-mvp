@@ -1,6 +1,6 @@
 /**
  * Derives a structured fragrance profile (numeric signals) from a catalog entry.
- * Used for trait-based matching and human explanations. Does not change catalog or DB.
+ * Uses Layer 3 taxonomy enrichment (weighted accords, notes → accords, subtypes) when available.
  */
 
 import type { CatalogFragrance } from "@/data/fragranceCatalog";
@@ -32,9 +32,13 @@ function categoryMatches(category: string, terms: string[]): boolean {
   return terms.some((t) => c.includes(norm(t)));
 }
 
+function val01(n: unknown): number | null {
+  return typeof n === "number" && !Number.isNaN(n) ? n : null;
+}
+
 /**
  * Builds 0–100 scores for each dimension from a catalog fragrance.
- * Uses accords, category, vibe, and occasions so we don't require new DB fields.
+ * Heuristic base from accords/category/vibe; taxonomy blend uses full accord ontology + notes when present.
  */
 export function getFragranceProfile(f: CatalogFragrance): FragranceProfileScores {
   const accords = f.accords ?? [];
@@ -70,27 +74,66 @@ export function getFragranceProfile(f: CatalogFragrance): FragranceProfileScores
   if (warmth > 50 || sweetness > 40) sensuality = Math.max(sensuality, 50);
 
   const versatileOccasions = ["office", "casual", "date"].filter((o) => occasions.includes(o as "office" | "casual" | "date"));
-  const versatility = Math.min(100, 25 * versatileOccasions.length + (occasions.length >= 3 ? 25 : 0));
+  let versatility = Math.min(100, 25 * versatileOccasions.length + (occasions.length >= 3 ? 25 : 0));
 
-  // --- Phase 1 taxonomy blend (safe wiring) ---
-  // If we can match standardized accords into the taxonomy, we blend in those trait signals.
-  // This does not replace heuristic scoring; it just improves trait estimation gradually.
+  // --- Taxonomy blend (Layer 1–3 accord ontology, weighted accords, note→accord rules) ---
   const taxonomy = getFragranceTaxonomyFeatures(f);
-  if (taxonomy?.confidence && taxonomy.confidence > 0.25) {
-    const blendW = Math.max(0.15, Math.min(0.35, taxonomy.confidence * 0.25));
+  if (taxonomy?.confidence && taxonomy.confidence > 0.2) {
     const t = taxonomy.traitScores;
+    const activationBoost =
+      Math.min(0.12, (taxonomy.accordActivations?.length ?? 0) * 0.015) +
+      (taxonomy.hasNoteDerivedAccords ? 0.08 : 0);
+    const blendW = Math.max(
+      0.22,
+      Math.min(0.58, taxonomy.confidence * 0.48 + activationBoost)
+    );
 
-    const txFresh = typeof t.trait_freshness === "number" ? t.trait_freshness * 100 : null;
-    const txWarm = typeof t.trait_temperature_warmth === "number" ? t.trait_temperature_warmth * 100 : null;
-    const txSweet = typeof t.trait_sweetness === "number" ? t.trait_sweetness * 100 : null;
-    const txClean = typeof t.trait_cleanliness === "number" ? t.trait_cleanliness * 100 : null;
-    const txSensual = typeof t.trait_sensuality === "number" ? t.trait_sensuality * 100 : null;
+    const txFresh =
+      val01(t.trait_freshness) != null || val01(t.trait_aquaticness) != null
+        ? ((val01(t.trait_freshness) ?? 0) * 0.72 + (val01(t.trait_aquaticness) ?? 0) * 0.28) * 100
+        : null;
+    const txWarm = val01(t.trait_temperature_warmth) != null ? val01(t.trait_temperature_warmth)! * 100 : null;
+    const txSweet = val01(t.trait_sweetness) != null ? val01(t.trait_sweetness)! * 100 : null;
+    const txClean = val01(t.trait_cleanliness) != null ? val01(t.trait_cleanliness)! * 100 : null;
+    const txSensual = val01(t.trait_sensuality) != null ? val01(t.trait_sensuality)! * 100 : null;
+
+    const txWood =
+      val01(t.trait_darkness) != null ||
+      val01(t.trait_resinousness) != null ||
+      val01(t.trait_smokiness) != null ||
+      val01(t.trait_leatheriness) != null
+        ? (0.32 * (val01(t.trait_darkness) ?? 0) +
+            0.28 * (val01(t.trait_resinousness) ?? 0) +
+            0.22 * (val01(t.trait_smokiness) ?? 0) +
+            0.18 * (val01(t.trait_leatheriness) ?? 0)) *
+          100
+        : null;
+
+    const txSpice =
+      val01(t.trait_boldness) != null ||
+      val01(t.trait_smokiness) != null ||
+      val01(t.trait_darkness) != null ||
+      val01(t.trait_leatheriness) != null
+        ? (0.32 * (val01(t.trait_boldness) ?? 0) +
+            0.26 * (val01(t.trait_smokiness) ?? 0) +
+            0.22 * (val01(t.trait_darkness) ?? 0) +
+            0.2 * (val01(t.trait_leatheriness) ?? 0)) *
+          100
+        : null;
+
+    const txVers =
+      val01(t.trait_mass_appeal) != null || val01(t.trait_complexity) != null
+        ? (0.52 * (val01(t.trait_mass_appeal) ?? 0) + 0.48 * (val01(t.trait_complexity) ?? 0)) * 100
+        : null;
 
     if (txFresh != null) freshness = freshness * (1 - blendW) + txFresh * blendW;
     if (txWarm != null) warmth = warmth * (1 - blendW) + txWarm * blendW;
     if (txSweet != null) sweetness = sweetness * (1 - blendW) + txSweet * blendW;
     if (txClean != null) cleanliness = cleanliness * (1 - blendW) + txClean * blendW;
     if (txSensual != null) sensuality = sensuality * (1 - blendW) + txSensual * blendW;
+    if (txWood != null) woodiness = woodiness * (1 - blendW) + txWood * blendW;
+    if (txSpice != null) spice = spice * (1 - blendW) + txSpice * blendW;
+    if (txVers != null) versatility = versatility * (1 - blendW) + txVers * blendW;
   }
 
   return {
